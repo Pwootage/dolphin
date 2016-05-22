@@ -26,6 +26,7 @@
 #include "Common/StringUtil.h"
 
 #include "Core/ActionReplay.h"
+#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
 #include "Core/ConfigManager.h"
 #include "Core/GeckoCode.h"
 #include "Core/GeckoCodeConfig.h"
@@ -218,6 +219,9 @@ void ApplyFramePatches()
   // Run the Gecko code handler
   Gecko::RunCodeHandler();
   ActionReplay::RunAllActive();
+
+  // Run prime memory dump
+  PrimeMemoryDumping::DumpMemoryForFrame();
   MSR = oldMSR;
 }
 
