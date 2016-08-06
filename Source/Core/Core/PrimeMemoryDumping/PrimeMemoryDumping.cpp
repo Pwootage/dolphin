@@ -17,7 +17,7 @@
 using namespace std;
 
 namespace PrimeMemoryDumping {
-    static bool initialized = false;
+  static bool initialized = false;
 	static sf::UdpSocket socket;
 	static sf::IpAddress target = "192.168.1.50";
 	static constexpr u16 port = 43673;
@@ -52,7 +52,7 @@ namespace PrimeMemoryDumping {
 		u16 makerID = PowerPC::HostRead_U16(0x04);
 
 		//Prime 1
-		if (true || gameID == 0x474D3845 && makerID == 0x3031) {
+		if (gameID == 0x474D3845 && makerID == 0x3031) {
 			u32 ptr = PowerPC::HostRead_U32(0x004578CC) - 0x80000000;
 
 			sf::Packet packet;
