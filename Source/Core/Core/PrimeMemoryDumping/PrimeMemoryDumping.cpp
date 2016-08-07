@@ -17,65 +17,81 @@
 using namespace std;
 
 namespace PrimeMemoryDumping {
-  static bool initialized = false;
-	static sf::UdpSocket socket;
-	static sf::IpAddress target = "192.168.1.50";
-	static constexpr u16 port = 43673;
-	static constexpr int INVENTORY_SIZE = 0x29;
+    static constexpr u8 PACKET_TYPE_GAME_DATA = 1;
+    static constexpr u8 PACKET_TYPE_RAW_DISC_READ = 2;
+
+
+    static bool initialized = false;
+    static sf::UdpSocket socket;
+    static sf::IpAddress target = "192.168.1.50";
+    static constexpr u16 port = 43673;
+    static constexpr int INVENTORY_SIZE = 0x29;
 
     void Init() {
-		initialized = true;
+      initialized = true;
     }
 
-	union FloatInt {
-		u32 intVal;
-		float floatVal;
-	};
+    union FloatInt {
+        u32 intVal;
+        float floatVal;
+    };
 
-	inline float ReadFloat(u32 addr) {
-		FloatInt res;
-		res.intVal = PowerPC::HostRead_U32(addr);
-		return res.floatVal;
-	}
+    inline float ReadFloat(u32 addr) {
+      FloatInt res;
+      res.intVal = PowerPC::HostRead_U32(addr);
+      return res.floatVal;
+    }
 
-	inline u64 read64(u32 addr) {
-		return (static_cast<u64>(PowerPC::HostRead_U32(addr)) << 32) | 
-			(static_cast<u64>(PowerPC::HostRead_U32(addr + 4)));
-	}
+    inline u64 read64(u32 addr) {
+      return (static_cast<u64>(PowerPC::HostRead_U32(addr)) << 32) |
+             (static_cast<u64>(PowerPC::HostRead_U32(addr + 4)));
+    }
 
     void DumpMemoryForFrame() {
-        if (!initialized) {
-            Init();
+      if (!initialized) {
+        Init();
+      }
+
+      u32 gameID = PowerPC::HostRead_U32(0x00);
+      u16 makerID = PowerPC::HostRead_U16(0x04);
+
+      //Prime 1
+      if (gameID == 0x474D3845 && makerID == 0x3031) {
+        u32 ptr = PowerPC::HostRead_U32(0x004578CC) - 0x80000000;
+
+        sf::Packet packet;
+        packet << PACKET_TYPE_GAME_DATA;
+        packet << gameID;
+        packet << makerID;
+        packet << ReadFloat(0x46BAB4); //Speed x
+        packet << ReadFloat(0x46BAB8); //Speed y
+        packet << ReadFloat(0x46BABC); //Speed Z
+        packet << ReadFloat(0x46B9BC); //Pos X
+        packet << ReadFloat(0x46B9CC); //Pos y
+        packet << ReadFloat(0x46B9DC); //Pos z
+        packet << PowerPC::HostRead_U32(0x45AA74); //room
+        packet << ptr;
+        packet << ReadFloat(ptr + 0x2AC); //heath
+        for (int i = 0; i < INVENTORY_SIZE * 2; i++) { //Inventory (count, capacity)xINVENTORY_SIZE
+          packet << PowerPC::HostRead_U32(ptr + 0x2C8 + i * 4);
         }
+        packet << PowerPC::HostRead_U32(ptr + 0xA0); // Timer high bits
+        packet << PowerPC::HostRead_U32(ptr + 0xA0 + 0x4); // Timer low bits
 
-		u32 gameID = PowerPC::HostRead_U32(0x00);
-		u16 makerID = PowerPC::HostRead_U16(0x04);
+        if (socket.send(packet, target, port) != sf::Socket::Done) {
+          PanicAlertT("Failed to dump data to socket!");
+        }
+      }
+    }
 
-		//Prime 1
-		if (gameID == 0x474D3845 && makerID == 0x3031) {
-			u32 ptr = PowerPC::HostRead_U32(0x004578CC) - 0x80000000;
+    void LogRead(u64 offset, u64 len) {
+      sf::Packet packet;
+      packet << PACKET_TYPE_RAW_DISC_READ;
+      packet << (sf::Uint64)offset;
+      packet << (sf::Uint64)len;
 
-			sf::Packet packet;
-			packet << gameID;
-			packet << makerID;
-			packet << ReadFloat(0x46BAB4); //Speed x
-			packet << ReadFloat(0x46BAB8); //Speed y
-			packet << ReadFloat(0x46BABC); //Speed Z
-			packet << ReadFloat(0x46B9BC); //Pos X
-			packet << ReadFloat(0x46B9CC); //Pos y
-			packet << ReadFloat(0x46B9DC); //Pos z
-			packet << PowerPC::HostRead_U32(0x45AA74); //room
-			packet << ptr;
-			packet << ReadFloat(ptr + 0x2AC); //heath
-			for (int i = 0; i < INVENTORY_SIZE * 2; i++) { //Inventory (count, capacity)xINVENTORY_SIZE
-				packet << PowerPC::HostRead_U32(ptr + 0x2C8 + i * 4);
-			}
-			packet << PowerPC::HostRead_U32(ptr + 0xA0); // Timer high bits
-			packet << PowerPC::HostRead_U32(ptr + 0xA0 + 0x4); // Timer low bits
-
-			if (socket.send(packet, target, port) != sf::Socket::Done) {
-				PanicAlertT("Failed to dump data to socket!");
-			}
-		}
+      if (socket.send(packet, target, port) != sf::Socket::Done) {
+        PanicAlertT("Failed to dump data to socket!");
+      }
     }
 }

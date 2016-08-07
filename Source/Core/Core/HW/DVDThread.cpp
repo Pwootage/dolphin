@@ -25,6 +25,8 @@
 
 #include "DiscIO/Volume.h"
 
+#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
+
 namespace DVDThread
 {
 static void DVDThread();

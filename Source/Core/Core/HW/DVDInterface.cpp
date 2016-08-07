@@ -32,6 +32,8 @@
 #include "DiscIO/Volume.h"
 #include "DiscIO/VolumeCreator.h"
 
+#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
+
 static const double PI = 3.14159265358979323846264338328;
 
 // Rate the drive can transfer data to main memory, given the data
@@ -665,6 +667,8 @@ bool ExecuteReadCommand(u64 DVD_offset, u32 output_address, u32 DVD_length, u32 
         output_length * (SystemTimers::GetTicksPerSecond() / BUFFER_TRANSFER_RATE);
   else
     *ticks_until_completion = SimulateDiscReadTime(DVD_offset, DVD_length);
+
+  PrimeMemoryDumping::LogRead(DVD_offset, DVD_length);
 
   DVDThread::StartRead(DVD_offset, output_address, DVD_length, decrypt, reply_to_ios,
                        (int)*ticks_until_completion);

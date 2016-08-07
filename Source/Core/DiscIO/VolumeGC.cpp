@@ -20,6 +20,7 @@
 #include "DiscIO/Filesystem.h"
 #include "DiscIO/Volume.h"
 #include "DiscIO/VolumeGC.h"
+#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
 
 namespace DiscIO
 {
@@ -38,6 +39,8 @@ bool CVolumeGC::Read(u64 _Offset, u64 _Length, u8* _pBuffer, bool decrypt) const
 
   if (m_pReader == nullptr)
     return false;
+
+  PrimeMemoryDumping::LogRead(_Offset, _Length);
 
   FileMon::FindFilename(_Offset);
 
