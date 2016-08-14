@@ -87,8 +87,10 @@ namespace PrimeMemoryDumping {
     void LogRead(u64 offset, u64 len) {
       sf::Packet packet;
       packet << PACKET_TYPE_RAW_DISC_READ;
-      packet << (sf::Uint64)offset;
-      packet << (sf::Uint64)len;
+      packet << static_cast<u32>((offset >> 32) & 0xFFFFFFFF);
+      packet << static_cast<u32>(offset & 0xFFFFFFFF);
+	  packet << static_cast<u32>((len >> 32) & 0xFFFFFFFF);
+	  packet << static_cast<u32>(len & 0xFFFFFFFF);
 
       if (socket.send(packet, target, port) != sf::Socket::Done) {
         PanicAlertT("Failed to dump data to socket!");
