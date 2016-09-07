@@ -23,7 +23,7 @@ namespace PrimeMemoryDumping {
 
     static bool initialized = false;
     static sf::UdpSocket socket;
-    static sf::IpAddress target = "192.168.1.50";
+    static sf::IpAddress target = "127.0.0.1";
     static constexpr u16 port = 43673;
     static constexpr int INVENTORY_SIZE = 0x29;
 
@@ -59,6 +59,8 @@ namespace PrimeMemoryDumping {
       if (gameID == 0x474D3845 && makerID == 0x3031) {
         u32 ptr = PowerPC::HostRead_U32(0x004578CC) - 0x80000000;
 
+        u32 currentWorldPtr = PowerPC::HostRead_U32(0x0045A9F8) - 0x80000000;
+
         sf::Packet packet;
         packet << PACKET_TYPE_GAME_DATA;
         packet << gameID;
@@ -70,7 +72,18 @@ namespace PrimeMemoryDumping {
         packet << ReadFloat(0x46B9CC); //Pos y
         packet << ReadFloat(0x46B9DC); //Pos z
         packet << PowerPC::HostRead_U32(0x45AA74); //room
-        packet << ptr;
+
+        packet << PowerPC::HostRead_U32(currentWorldPtr + 0x04); // state (enum)
+        packet << PowerPC::HostRead_U32(currentWorldPtr + 0x08); //MLVL ID
+
+        u32 areaCount = PowerPC::HostRead_U32(currentWorldPtr + 0x18);
+        u32 areaCountSize = PowerPC::HostRead_U32(currentWorldPtr + 0x1C);
+        u32 areaPtr = PowerPC::HostRead_U32(currentWorldPtr + 0x20);
+
+        packet << areaCount;
+        packet << areaCountSize;
+        packet << areaPtr;
+
         packet << ReadFloat(ptr + 0x2AC); //heath
         for (int i = 0; i < INVENTORY_SIZE * 2; i++) { //Inventory (count, capacity)xINVENTORY_SIZE
           packet << PowerPC::HostRead_U32(ptr + 0x2C8 + i * 4);
@@ -89,8 +102,8 @@ namespace PrimeMemoryDumping {
       packet << PACKET_TYPE_RAW_DISC_READ;
       packet << static_cast<u32>((offset >> 32) & 0xFFFFFFFF);
       packet << static_cast<u32>(offset & 0xFFFFFFFF);
-	  packet << static_cast<u32>((len >> 32) & 0xFFFFFFFF);
-	  packet << static_cast<u32>(len & 0xFFFFFFFF);
+      packet << static_cast<u32>((len >> 32) & 0xFFFFFFFF);
+      packet << static_cast<u32>(len & 0xFFFFFFFF);
 
       if (socket.send(packet, target, port) != sf::Socket::Done) {
         PanicAlertT("Failed to dump data to socket!");
