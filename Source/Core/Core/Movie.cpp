@@ -35,6 +35,7 @@
 #include "Core/NetPlayProto.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
+#include "Scripting/ScriptingHandler.h"
 #include "DiscIO/Enums.h"
 #include "InputCommon/GCPadStatus.h"
 #include "VideoCommon/Fifo.h"
@@ -1482,6 +1483,7 @@ void CallGCInputManip(GCPadStatus* PadStatus, int controllerID)
 {
   if (gcmfunc)
     (*gcmfunc)(PadStatus, controllerID);
+  Scripting::ProcessGCPadStatus(PadStatus, controllerID);
 }
 // NOTE: CPU Thread
 void CallWiiInputManip(u8* data, WiimoteEmu::ReportFeatures rptf, int controllerID, int ext,

@@ -229,6 +229,7 @@ set(LIBS
 	discio
 	enet
 	inputcommon
+	scripting
 	${LZO}
 	sfml-network
 	sfml-system

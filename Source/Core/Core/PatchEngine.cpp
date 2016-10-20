@@ -32,6 +32,8 @@
 #include "Core/PatchEngine.h"
 #include "Core/PowerPC/PowerPC.h"
 
+#include "Scripting/ScriptingHandler.h"
+
 using namespace Common;
 
 namespace PatchEngine
@@ -218,6 +220,9 @@ void ApplyFramePatches()
   // Run the Gecko code handler
   Gecko::RunCodeHandler();
   ActionReplay::RunAllActive();
+
+  Scripting::RunScriptingFrame();
+
   MSR = oldMSR;
 }
 
@@ -227,6 +232,7 @@ void Shutdown()
   speedHacks.clear();
   ActionReplay::ApplyCodes({});
   Gecko::SetActiveCodes({});
+  Scripting::ResetScriptingEnvironment();
 }
 
 }  // namespace
