@@ -9,7 +9,7 @@
 #include "Core/CoreTiming.h"
 #include "Core/HW/ProcessorInterface.h"
 #include "Core/PowerPC/Jit64/JitRegCache.h"
-#include "Core/PowerPC/JitCommon/Jit_Util.h"
+#include "Core/PowerPC/Jit64Common/Jit64Util.h"
 #include "Core/PowerPC/PowerPC.h"
 
 using namespace Gen;
@@ -243,7 +243,7 @@ void Jit64::mtspr(UGeckoInstruction inst)
     FixupBranch dont_reset_icache = J_CC(CC_NC);
     BitSet32 regs = CallerSavedRegistersInUse();
     ABI_PushRegistersAndAdjustStack(regs, 0);
-    ABI_CallFunction((void*)DoICacheReset);
+    ABI_CallFunction(DoICacheReset);
     ABI_PopRegistersAndAdjustStack(regs, 0);
     SetJumpTarget(dont_reset_icache);
     break;
@@ -286,13 +286,13 @@ void Jit64::mfspr(UGeckoInstruction inst)
     // cost of calling out to C for this is actually significant.
     // Scale downcount by the CPU overclocking factor.
     CVTSI2SS(XMM0, PPCSTATE(downcount));
-    MULSS(XMM0, M(&CoreTiming::g_lastOCFactor_inverted));
+    MULSS(XMM0, M(&CoreTiming::g_last_OC_factor_inverted));
     CVTSS2SI(RDX, R(XMM0));  // RDX is downcount scaled by the overclocking factor
-    MOV(32, R(RAX), M(&CoreTiming::g_slicelength));
+    MOV(32, R(RAX), M(&CoreTiming::g_slice_length));
     SUB(64, R(RAX), R(RDX));  // cycles since the last CoreTiming::Advance() event is (slicelength -
                               // Scaled_downcount)
-    ADD(64, R(RAX), M(&CoreTiming::g_globalTimer));
-    SUB(64, R(RAX), M(&CoreTiming::g_fakeTBStartTicks));
+    ADD(64, R(RAX), M(&CoreTiming::g_global_timer));
+    SUB(64, R(RAX), M(&CoreTiming::g_fake_TB_start_ticks));
     // It might seem convenient to correct the timer for the block position here for even more
     // accurate
     // timing, but as of currently, this can break games. If we end up reading a time *after* the
@@ -308,7 +308,7 @@ void Jit64::mfspr(UGeckoInstruction inst)
     // a / 12 = (a * 0xAAAAAAAAAAAAAAAB) >> 67
     MOV(64, R(RDX), Imm64(0xAAAAAAAAAAAAAAABULL));
     MUL(64, R(RDX));
-    MOV(64, R(RAX), M(&CoreTiming::g_fakeTBStartValue));
+    MOV(64, R(RAX), M(&CoreTiming::g_fake_TB_start_value));
     SHR(64, R(RDX), Imm8(3));
     ADD(64, R(RAX), R(RDX));
     MOV(64, PPCSTATE(spr[SPR_TL]), R(RAX));
@@ -483,6 +483,7 @@ void Jit64::mtcrf(UGeckoInstruction inst)
     }
     else
     {
+      MOV(64, R(RSCRATCH2), ImmPtr(m_crTable));
       gpr.Lock(inst.RS);
       gpr.BindToRegister(inst.RS, true, false);
       for (int i = 0; i < 8; i++)
@@ -494,7 +495,7 @@ void Jit64::mtcrf(UGeckoInstruction inst)
             SHR(32, R(RSCRATCH), Imm8(28 - (i * 4)));
           if (i != 0)
             AND(32, R(RSCRATCH), Imm8(0xF));
-          MOV(64, R(RSCRATCH), MScaled(RSCRATCH, SCALE_8, (u32)(u64)m_crTable));
+          MOV(64, R(RSCRATCH), MComplex(RSCRATCH2, RSCRATCH, SCALE_8, 0));
           MOV(64, PPCSTATE(cr_val[i]), R(RSCRATCH));
         }
       }
@@ -529,7 +530,8 @@ void Jit64::mcrxr(UGeckoInstruction inst)
   // [SO OV CA 0] << 3
   SHL(32, R(RSCRATCH), Imm8(4));
 
-  MOV(64, R(RSCRATCH), MDisp(RSCRATCH, (u32)(u64)m_crTable));
+  MOV(64, R(RSCRATCH2), ImmPtr(m_crTable));
+  MOV(64, R(RSCRATCH), MRegSum(RSCRATCH, RSCRATCH2));
   MOV(64, PPCSTATE(cr_val[inst.CRFD]), R(RSCRATCH));
 
   // Clear XER[0-3]

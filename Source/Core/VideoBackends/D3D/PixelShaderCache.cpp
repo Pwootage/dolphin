@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "Common/Align.h"
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/LinearDiskCache.h"
@@ -457,7 +458,8 @@ public:
 
 void PixelShaderCache::Init()
 {
-  unsigned int cbsize = ROUND_UP(sizeof(PixelShaderConstants), 16);  // must be a multiple of 16
+  unsigned int cbsize = Common::AlignUp(static_cast<unsigned int>(sizeof(PixelShaderConstants)),
+                                        16);  // must be a multiple of 16
   D3D11_BUFFER_DESC cbdesc = CD3D11_BUFFER_DESC(cbsize, D3D11_BIND_CONSTANT_BUFFER,
                                                 D3D11_USAGE_DYNAMIC, D3D11_CPU_ACCESS_WRITE);
   D3D::device->CreateBuffer(&cbdesc, nullptr, &pscbuf);
@@ -500,7 +502,7 @@ void PixelShaderCache::Init()
 
   std::string cache_filename =
       StringFromFormat("%sdx11-%s-ps.cache", File::GetUserPath(D_SHADERCACHE_IDX).c_str(),
-                       SConfig::GetInstance().m_strUniqueID.c_str());
+                       SConfig::GetInstance().m_strGameID.c_str());
   PixelShaderCacheInserter inserter;
   g_ps_disk_cache.OpenAndRead(cache_filename, inserter);
 
@@ -578,7 +580,7 @@ bool PixelShaderCache::SetShader(DSTALPHA_MODE dstAlphaMode)
   }
 
   // Need to compile a new shader
-  ShaderCode code = GeneratePixelShaderCode(dstAlphaMode, APIType::D3D, uid.GetUidData());
+  ShaderCode code = GeneratePixelShaderCode(APIType::D3D, uid.GetUidData());
 
   D3DBlob* pbytecode;
   if (!D3D::CompilePixelShader(code.GetBuffer(), &pbytecode))

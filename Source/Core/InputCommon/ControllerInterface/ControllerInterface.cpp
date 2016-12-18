@@ -14,13 +14,11 @@
 #include "InputCommon/ControllerInterface/DInput/DInput.h"
 #endif
 #ifdef CIFACE_USE_XLIB
-#include "InputCommon/ControllerInterface/Xlib/Xlib.h"
-#ifdef CIFACE_USE_X11_XINPUT2
 #include "InputCommon/ControllerInterface/Xlib/XInput2.h"
-#endif
 #endif
 #ifdef CIFACE_USE_OSX
 #include "InputCommon/ControllerInterface/OSX/OSX.h"
+#include "InputCommon/ControllerInterface/Quartz/Quartz.h"
 #endif
 #ifdef CIFACE_USE_SDL
 #include "InputCommon/ControllerInterface/SDL/SDL.h"
@@ -57,43 +55,70 @@ void ControllerInterface::Initialize(void* const hwnd)
   m_hwnd = hwnd;
 
 #ifdef CIFACE_USE_DINPUT
-  ciface::DInput::Init((HWND)hwnd);
+// nothing needed
 #endif
 #ifdef CIFACE_USE_XINPUT
   ciface::XInput::Init();
 #endif
 #ifdef CIFACE_USE_XLIB
-  ciface::Xlib::Init(hwnd);
-#ifdef CIFACE_USE_X11_XINPUT2
-  ciface::XInput2::Init(hwnd);
-#endif
+// nothing needed
 #endif
 #ifdef CIFACE_USE_OSX
   ciface::OSX::Init(hwnd);
+// nothing needed for Quartz
 #endif
 #ifdef CIFACE_USE_SDL
   ciface::SDL::Init();
 #endif
 #ifdef CIFACE_USE_ANDROID
-  ciface::Android::Init();
+// nothing needed
 #endif
 #ifdef CIFACE_USE_EVDEV
   ciface::evdev::Init();
 #endif
 #ifdef CIFACE_USE_PIPES
-  ciface::Pipes::Init();
+// nothing needed
 #endif
 
   m_is_init = true;
+  RefreshDevices();
 }
 
-void ControllerInterface::Reinitialize()
+void ControllerInterface::RefreshDevices()
 {
   if (!m_is_init)
     return;
 
-  Shutdown();
-  Initialize(m_hwnd);
+  {
+    std::lock_guard<std::mutex> lk(m_devices_mutex);
+    m_devices.clear();
+  }
+
+#ifdef CIFACE_USE_DINPUT
+  ciface::DInput::PopulateDevices(reinterpret_cast<HWND>(m_hwnd));
+#endif
+#ifdef CIFACE_USE_XINPUT
+  ciface::XInput::PopulateDevices();
+#endif
+#ifdef CIFACE_USE_XLIB
+  ciface::XInput2::PopulateDevices(m_hwnd);
+#endif
+#ifdef CIFACE_USE_OSX
+  ciface::OSX::PopulateDevices(m_hwnd);
+  ciface::Quartz::PopulateDevices(m_hwnd);
+#endif
+#ifdef CIFACE_USE_SDL
+  ciface::SDL::PopulateDevices();
+#endif
+#ifdef CIFACE_USE_ANDROID
+  ciface::Android::PopulateDevices();
+#endif
+#ifdef CIFACE_USE_EVDEV
+  ciface::evdev::PopulateDevices();
+#endif
+#ifdef CIFACE_USE_PIPES
+  ciface::Pipes::PopulateDevices();
+#endif
 }
 
 //
@@ -106,6 +131,19 @@ void ControllerInterface::Shutdown()
   if (!m_is_init)
     return;
 
+  {
+    std::lock_guard<std::mutex> lk(m_devices_mutex);
+
+    for (const auto& d : m_devices)
+    {
+      // Set outputs to ZERO before destroying device
+      for (ciface::Core::Device::Output* o : d->Outputs())
+        o->SetState(0);
+    }
+
+    m_devices.clear();
+  }
+
 #ifdef CIFACE_USE_XINPUT
   ciface::XInput::DeInit();
 #endif
@@ -117,6 +155,7 @@ void ControllerInterface::Shutdown()
 #endif
 #ifdef CIFACE_USE_OSX
   ciface::OSX::DeInit();
+  ciface::Quartz::DeInit();
 #endif
 #ifdef CIFACE_USE_SDL
   // TODO: there seems to be some sort of memory leak with SDL, quit isn't freeing everything up
@@ -128,17 +167,6 @@ void ControllerInterface::Shutdown()
 #ifdef CIFACE_USE_EVDEV
   ciface::evdev::Shutdown();
 #endif
-
-  std::lock_guard<std::mutex> lk(m_devices_mutex);
-
-  for (const auto& d : m_devices)
-  {
-    // Set outputs to ZERO before destroying device
-    for (ciface::Core::Device::Output* o : d->Outputs())
-      o->SetState(0);
-  }
-
-  m_devices.clear();
 
   m_is_init = false;
 }

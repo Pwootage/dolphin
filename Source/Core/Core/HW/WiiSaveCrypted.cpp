@@ -18,19 +18,17 @@
 #include <string>
 #include <vector>
 
+#include "Common/Align.h"
 #include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/Crypto/ec.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
-#include "Common/MathUtil.h"
 #include "Common/MsgHandler.h"
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
 
 #include "Core/HW/WiiSaveCrypted.h"
-
-static Common::replace_v replacements;
 
 const u8 CWiiSaveCrypted::s_sd_key[16] = {0xAB, 0x01, 0xB9, 0xD8, 0xE1, 0x62, 0x2B, 0x08,
                                           0xAF, 0xBA, 0xD8, 0x4D, 0xBF, 0xC2, 0xA5, 0x5D};
@@ -102,7 +100,6 @@ void CWiiSaveCrypted::ExportAllSaves()
 CWiiSaveCrypted::CWiiSaveCrypted(const std::string& filename, u64 title_id)
     : m_encrypted_save_path(filename), m_title_id(title_id)
 {
-  Common::ReadReplacements(replacements);
   memcpy(m_sd_iv, "\x21\x67\x12\xE6\xAA\x1F\x68\x9F\x95\xC5\xA2\x23\x24\xDC\x6A\x98", 0x10);
 
   if (!title_id)  // Import
@@ -340,19 +337,15 @@ void CWiiSaveCrypted::ImportWiiSaveFiles()
     }
     else
     {
-      std::string filename((char*)file_hdr_tmp.name);
-      for (const Common::replace_t& replacement : replacements)
-      {
-        for (size_t j = 0; (j = filename.find(replacement.first, j)) != filename.npos; ++j)
-          filename.replace(j, 1, replacement.second);
-      }
+      std::string filename =
+          Common::EscapeFileName(reinterpret_cast<const char*>(file_hdr_tmp.name));
 
       std::string file_path_full = m_wii_title_path + filename;
       File::CreateFullPath(file_path_full);
       if (file_hdr_tmp.type == 1)
       {
         file_size = Common::swap32(file_hdr_tmp.size);
-        u32 file_size_rounded = ROUND_UP(file_size, BLOCK_SZ);
+        u32 file_size_rounded = Common::AlignUp(file_size, BLOCK_SZ);
         std::vector<u8> file_data(file_size_rounded);
         std::vector<u8> file_data_enc(file_size_rounded);
 
@@ -388,7 +381,6 @@ void CWiiSaveCrypted::ExportWiiSaveFiles()
   for (u32 i = 0; i < m_files_list_size; i++)
   {
     FileHDR file_hdr_tmp;
-    std::string name;
     memset(&file_hdr_tmp, 0, FILE_HDR_SZ);
 
     u32 file_size = 0;
@@ -402,20 +394,13 @@ void CWiiSaveCrypted::ExportWiiSaveFiles()
       file_hdr_tmp.type = 1;
     }
 
-    u32 file_size_rounded = ROUND_UP(file_size, BLOCK_SZ);
+    u32 file_size_rounded = Common::AlignUp(file_size, BLOCK_SZ);
     file_hdr_tmp.magic = Common::swap32(FILE_HDR_MAGIC);
     file_hdr_tmp.size = Common::swap32(file_size);
     file_hdr_tmp.Permissions = 0x3c;
 
-    name = m_files_list[i].substr(m_wii_title_path.length() + 1);
-
-    for (const Common::replace_t& repl : replacements)
-    {
-      for (size_t j = 0; (j = name.find(repl.second, j)) != name.npos; ++j)
-      {
-        name.replace(j, repl.second.length(), 1, repl.first);
-      }
-    }
+    std::string name =
+        Common::UnescapeFileName(m_files_list[i].substr(m_wii_title_path.length() + 1));
 
     if (name.length() > 0x44)
     {
@@ -645,7 +630,7 @@ void CWiiSaveCrypted::ScanForFiles(const std::string& save_directory,
         else
         {
           file_list.push_back(elem.physicalName);
-          size += ROUND_UP(elem.size, BLOCK_SZ);
+          size += static_cast<u32>(Common::AlignUp(elem.size, BLOCK_SZ));
         }
       }
     }

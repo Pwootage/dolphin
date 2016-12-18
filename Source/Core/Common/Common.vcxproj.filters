@@ -18,6 +18,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Align.h" />
     <ClInclude Include="Atomic.h" />
     <ClInclude Include="Atomic_GCC.h" />
     <ClInclude Include="Atomic_Win32.h" />
@@ -63,6 +64,7 @@
     <ClInclude Include="Timer.h" />
     <ClInclude Include="x64ABI.h" />
     <ClInclude Include="x64Emitter.h" />
+    <ClInclude Include="x64Reg.h" />
     <ClInclude Include="Logging\ConsoleListener.h">
       <Filter>Logging</Filter>
     </ClInclude>
@@ -224,6 +226,7 @@
     <ClInclude Include="Assert.h" />
     <ClInclude Include="NonCopyable.h" />
     <ClInclude Include="Analytics.h" />
+    <ClInclude Include="Semaphore.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BreakPoints.cpp" />

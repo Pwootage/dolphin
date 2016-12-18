@@ -17,6 +17,7 @@
 #include "Common/JitRegister.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/CoreTiming.h"
 #include "Core/PowerPC/JitCommon/JitBase.h"
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PowerPC.h"
@@ -27,6 +28,13 @@
 
 using namespace Gen;
 
+static CoreTiming::EventType* s_clear_jit_cache_thread_safe;
+
+static void ClearCacheThreadSafe(u64 userdata, s64 cyclesdata)
+{
+  JitInterface::ClearCache();
+}
+
 bool JitBaseBlockCache::IsFull() const
 {
   return GetNumBlocks() >= MAX_NUM_BLOCKS - 1;
@@ -34,6 +42,7 @@ bool JitBaseBlockCache::IsFull() const
 
 void JitBaseBlockCache::Init()
 {
+  s_clear_jit_cache_thread_safe = CoreTiming::RegisterEvent("clearJitCache", ClearCacheThreadSafe);
   JitRegister::Init(SConfig::GetInstance().m_perfDir);
 
   iCache.fill(0);
@@ -71,6 +80,11 @@ void JitBaseBlockCache::Clear()
   num_blocks = 1;
   blocks[0].msrBits = 0xFFFFFFFF;
   blocks[0].invalid = true;
+}
+
+void JitBaseBlockCache::SchedulateClearCacheThreadSafe()
+{
+  CoreTiming::ScheduleEvent(0, s_clear_jit_cache_thread_safe, 0, CoreTiming::FromThread::NON_CPU);
 }
 
 void JitBaseBlockCache::Reset()
@@ -281,7 +295,7 @@ void JitBaseBlockCache::DestroyBlock(int block_num, bool invalidate)
 
   UnlinkBlock(block_num);
 
-  // Delete linking adresses
+  // Delete linking addresses
   auto it = links_to.equal_range(b.effectiveAddress);
   while (it.first != it.second)
   {
@@ -337,35 +351,4 @@ void JitBaseBlockCache::InvalidateICache(u32 address, const u32 length, bool for
       }
     }
   }
-}
-
-void JitBlockCache::WriteLinkBlock(const JitBlock::LinkData& source, const JitBlock* dest)
-{
-  u8* location = source.exitPtrs;
-  const u8* address = dest ? dest->checkedEntry : jit->GetAsmRoutines()->dispatcher;
-  XEmitter emit(location);
-  if (*location == 0xE8)
-  {
-    emit.CALL(address);
-  }
-  else
-  {
-    // If we're going to link with the next block, there is no need
-    // to emit JMP. So just NOP out the gap to the next block.
-    // Support up to 3 additional bytes because of alignment.
-    s64 offset = address - emit.GetCodePtr();
-    if (offset > 0 && offset <= 5 + 3)
-      emit.NOP(offset);
-    else
-      emit.JMP(address, true);
-  }
-}
-
-void JitBlockCache::WriteDestroyBlock(const JitBlock& block)
-{
-  // Only clear the entry points as we might still be within this block.
-  XEmitter emit((u8*)block.checkedEntry);
-  emit.INT3();
-  XEmitter emit2((u8*)block.normalEntry);
-  emit2.INT3();
 }

@@ -9,7 +9,6 @@
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/MathUtil.h"
-#include "Core/ConfigManager.h"
 #include "Core/HW/DSP.h"
 #include "Core/HW/DSPHLE/UCodes/AXStructs.h"
 
@@ -18,7 +17,7 @@
 
 AXUCode::AXUCode(DSPHLE* dsphle, u32 crc) : UCodeInterface(dsphle, crc), m_cmdlist_size(0)
 {
-  WARN_LOG(DSPHLE, "Instantiating AXUCode: crc=%08x", crc);
+  INFO_LOG(DSPHLE, "Instantiating AXUCode: crc=%08x", crc);
   m_mail_handler.PushMail(DSP_INIT);
   DSP::GenerateDSPInterruptFromDSPEmu(DSP::INT_DSP);
 
@@ -54,7 +53,7 @@ void AXUCode::LoadResamplingCoefficients()
   if (fidx >= ArraySize(filenames))
     return;
 
-  WARN_LOG(DSPHLE, "Loading polyphase resampling coeffs from %s", filename.c_str());
+  INFO_LOG(DSPHLE, "Loading polyphase resampling coeffs from %s", filename.c_str());
 
   File::IOFile fp(filename, "rb");
   fp.ReadBytes(m_coeffs, 0x1000);
@@ -82,10 +81,10 @@ void AXUCode::HandleCommandList()
   u32 pb_addr = 0;
 
 #if 0
-	WARN_LOG(DSPHLE, "Command list:");
+	INFO_LOG(DSPHLE, "Command list:");
 	for (u32 i = 0; m_cmdlist[i] != CMD_END; ++i)
-		WARN_LOG(DSPHLE, "%04x", m_cmdlist[i]);
-	WARN_LOG(DSPHLE, "-------------");
+		INFO_LOG(DSPHLE, "%04x", m_cmdlist[i]);
+	INFO_LOG(DSPHLE, "-------------");
 #endif
 
   u32 curr_idx = 0;

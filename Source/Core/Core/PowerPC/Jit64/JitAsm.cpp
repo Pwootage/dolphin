@@ -34,7 +34,7 @@ void Jit64AsmRoutineManager::Generate()
   {
     // Pivot the stack to our custom one.
     MOV(64, R(RSCRATCH), R(RSP));
-    MOV(64, R(RSP), Imm64((u64)m_stack_top - 0x20));
+    MOV(64, R(RSP), ImmPtr(m_stack_top - 0x20));
     MOV(64, MDisp(RSP, 0x18), R(RSCRATCH));
   }
   else
@@ -50,7 +50,7 @@ void Jit64AsmRoutineManager::Generate()
 
   const u8* outerLoop = GetCodePtr();
   ABI_PushRegistersAndAdjustStack({}, 0);
-  ABI_CallFunction(reinterpret_cast<void*>(&CoreTiming::Advance));
+  ABI_CallFunction(CoreTiming::Advance);
   ABI_PopRegistersAndAdjustStack({}, 0);
   FixupBranch skipToRealDispatch =
       J(SConfig::GetInstance().bEnableDebugging);  // skip the sync and compare first time
@@ -69,9 +69,9 @@ void Jit64AsmRoutineManager::Generate()
   SUB(32, PPCSTATE(downcount), R(RSCRATCH2));
 
   dispatcher = GetCodePtr();
-  // The result of slice decrementation should be in flags if somebody jumped here
-  // IMPORTANT - We jump on negative, not carry!!!
-  FixupBranch bail = J_CC(CC_BE, true);
+  // Expected result of SUB(32, PPCSTATE(downcount), Imm32(block_cycles)) is in RFLAGS.
+  // Branch if downcount is <= 0 (signed).
+  FixupBranch bail = J_CC(CC_LE, true);
 
   FixupBranch dbg_exit;
 
@@ -80,7 +80,7 @@ void Jit64AsmRoutineManager::Generate()
     TEST(32, M(CPU::GetStatePtr()), Imm32(CPU::CPU_STEPPING));
     FixupBranch notStepping = J_CC(CC_Z);
     ABI_PushRegistersAndAdjustStack({}, 0);
-    ABI_CallFunction(reinterpret_cast<void*>(&PowerPC::CheckBreakPoints));
+    ABI_CallFunction(PowerPC::CheckBreakPoints);
     ABI_PopRegistersAndAdjustStack({}, 0);
     TEST(32, M(CPU::GetStatePtr()), Imm32(0xFFFFFFFF));
     dbg_exit = J_CC(CC_NZ, true);
@@ -96,13 +96,13 @@ void Jit64AsmRoutineManager::Generate()
   // need to do this for indirect jumps, just exceptions etc.
   TEST(32, PPCSTATE(msr), Imm32(1 << (31 - 27)));
   FixupBranch physmem = J_CC(CC_NZ);
-  MOV(64, R(RMEM), Imm64((u64)Memory::physical_base));
+  MOV(64, R(RMEM), ImmPtr(Memory::physical_base));
   FixupBranch membaseend = J();
   SetJumpTarget(physmem);
-  MOV(64, R(RMEM), Imm64((u64)Memory::logical_base));
+  MOV(64, R(RMEM), ImmPtr(Memory::logical_base));
   SetJumpTarget(membaseend);
 
-  // The following is an translation of JitBaseBlockCache::Dispatch into assembly.
+  // The following is a translation of JitBaseBlockCache::Dispatch into assembly.
 
   // Fast block number lookup.
   MOV(32, R(RSCRATCH), PPCSTATE(pc));
@@ -154,7 +154,7 @@ void Jit64AsmRoutineManager::Generate()
 
   // Ok, no block, let's call the slow dispatcher
   ABI_PushRegistersAndAdjustStack({}, 0);
-  ABI_CallFunction(reinterpret_cast<void*>(&JitBase::Dispatch));
+  ABI_CallFunction(JitBase::Dispatch);
   ABI_PopRegistersAndAdjustStack({}, 0);
   //  JMPptr(R(ABI_RETURN));
   JMP(dispatcherNoCheck, true);

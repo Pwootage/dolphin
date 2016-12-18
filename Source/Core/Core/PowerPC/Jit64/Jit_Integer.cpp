@@ -9,10 +9,9 @@
 #include "Common/CommonTypes.h"
 #include "Common/MathUtil.h"
 #include "Common/x64Emitter.h"
-#include "Core/ConfigManager.h"
 #include "Core/PowerPC/Jit64/Jit.h"
 #include "Core/PowerPC/Jit64/JitRegCache.h"
-#include "Core/PowerPC/JitCommon/Jit_Util.h"
+#include "Core/PowerPC/Jit64Common/Jit64Util.h"
 #include "Core/PowerPC/PPCAnalyst.h"
 #include "Core/PowerPC/PowerPC.h"
 
@@ -52,7 +51,8 @@ void Jit64::GenerateOverflow()
   // rare).
   static const u8 ovtable[4] = {0, 0, XER_SO_MASK, XER_SO_MASK};
   MOVZX(32, 8, RSCRATCH, PPCSTATE(xer_so_ov));
-  MOV(8, R(RSCRATCH), MDisp(RSCRATCH, (u32)(u64)ovtable));
+  MOV(64, R(RSCRATCH2), ImmPtr(ovtable));
+  MOV(8, R(RSCRATCH), MRegSum(RSCRATCH, RSCRATCH2));
   MOV(8, PPCSTATE(xer_so_ov), R(RSCRATCH));
   SetJumpTarget(exit);
 }

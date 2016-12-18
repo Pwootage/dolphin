@@ -159,6 +159,7 @@ public:
   void FinalizeBlock(int block_num, bool block_link, const u8* code_ptr);
 
   void Clear();
+  void SchedulateClearCacheThreadSafe();
   void Init();
   void Shutdown();
   void Reset();
@@ -184,12 +185,4 @@ public:
   void InvalidateICache(u32 address, const u32 length, bool forced);
 
   u32* GetBlockBitSet() const { return valid_block.m_valid_block.get(); }
-};
-
-// x86 BlockCache
-class JitBlockCache : public JitBaseBlockCache
-{
-private:
-  void WriteLinkBlock(const JitBlock::LinkData& source, const JitBlock* dest) override;
-  void WriteDestroyBlock(const JitBlock& block) override;
 };

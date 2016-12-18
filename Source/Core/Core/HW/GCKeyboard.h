@@ -5,17 +5,20 @@
 #pragma once
 
 #include "Common/CommonTypes.h"
+#include "InputCommon/ControllerEmu.h"
 
 class InputConfig;
+enum class KeyboardGroup;
 struct KeyboardStatus;
 
 namespace Keyboard
 {
 void Shutdown();
-void Initialize(void* const hwnd);
+void Initialize();
 void LoadConfig();
 
 InputConfig* GetConfig();
+ControllerEmu::ControlGroup* GetGroup(int port, KeyboardGroup group);
 
-KeyboardStatus GetStatus(u8 port);
+KeyboardStatus GetStatus(int port);
 }

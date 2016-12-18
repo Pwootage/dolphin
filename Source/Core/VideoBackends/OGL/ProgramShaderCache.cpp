@@ -5,9 +5,11 @@
 #include <memory>
 #include <string>
 
+#include "Common/Align.h"
 #include "Common/Common.h"
-#include "Common/MathUtil.h"
 #include "Common/StringUtil.h"
+
+#include "Core/ConfigManager.h"
 
 #include "VideoBackends/OGL/ProgramShaderCache.h"
 #include "VideoBackends/OGL/Render.h"
@@ -146,22 +148,22 @@ void ProgramShaderCache::UploadConstants()
 
     memcpy(buffer.first, &PixelShaderManager::constants, sizeof(PixelShaderConstants));
 
-    memcpy(buffer.first + ROUND_UP(sizeof(PixelShaderConstants), s_ubo_align),
+    memcpy(buffer.first + Common::AlignUp(sizeof(PixelShaderConstants), s_ubo_align),
            &VertexShaderManager::constants, sizeof(VertexShaderConstants));
 
-    memcpy(buffer.first + ROUND_UP(sizeof(PixelShaderConstants), s_ubo_align) +
-               ROUND_UP(sizeof(VertexShaderConstants), s_ubo_align),
+    memcpy(buffer.first + Common::AlignUp(sizeof(PixelShaderConstants), s_ubo_align) +
+               Common::AlignUp(sizeof(VertexShaderConstants), s_ubo_align),
            &GeometryShaderManager::constants, sizeof(GeometryShaderConstants));
 
     s_buffer->Unmap(s_ubo_buffer_size);
     glBindBufferRange(GL_UNIFORM_BUFFER, 1, s_buffer->m_buffer, buffer.second,
                       sizeof(PixelShaderConstants));
     glBindBufferRange(GL_UNIFORM_BUFFER, 2, s_buffer->m_buffer,
-                      buffer.second + ROUND_UP(sizeof(PixelShaderConstants), s_ubo_align),
+                      buffer.second + Common::AlignUp(sizeof(PixelShaderConstants), s_ubo_align),
                       sizeof(VertexShaderConstants));
     glBindBufferRange(GL_UNIFORM_BUFFER, 3, s_buffer->m_buffer,
-                      buffer.second + ROUND_UP(sizeof(PixelShaderConstants), s_ubo_align) +
-                          ROUND_UP(sizeof(VertexShaderConstants), s_ubo_align),
+                      buffer.second + Common::AlignUp(sizeof(PixelShaderConstants), s_ubo_align) +
+                          Common::AlignUp(sizeof(VertexShaderConstants), s_ubo_align),
                       sizeof(GeometryShaderConstants));
 
     PixelShaderManager::dirty = false;
@@ -208,7 +210,7 @@ SHADER* ProgramShaderCache::SetShader(DSTALPHA_MODE dstAlphaMode, u32 primitive_
   newentry.in_cache = 0;
 
   ShaderCode vcode = GenerateVertexShaderCode(APIType::OpenGL, uid.vuid.GetUidData());
-  ShaderCode pcode = GeneratePixelShaderCode(dstAlphaMode, APIType::OpenGL, uid.puid.GetUidData());
+  ShaderCode pcode = GeneratePixelShaderCode(APIType::OpenGL, uid.puid.GetUidData());
   ShaderCode gcode;
   if (g_ActiveConfig.backend_info.bSupportsGeometryShaders &&
       !uid.guid.GetUidData()->IsPassthrough())
@@ -405,9 +407,10 @@ void ProgramShaderCache::Init()
   // then the UBO will fail.
   glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &s_ubo_align);
 
-  s_ubo_buffer_size = ROUND_UP(sizeof(PixelShaderConstants), s_ubo_align) +
-                      ROUND_UP(sizeof(VertexShaderConstants), s_ubo_align) +
-                      ROUND_UP(sizeof(GeometryShaderConstants), s_ubo_align);
+  s_ubo_buffer_size =
+      static_cast<u32>(Common::AlignUp(sizeof(PixelShaderConstants), s_ubo_align) +
+                       Common::AlignUp(sizeof(VertexShaderConstants), s_ubo_align) +
+                       Common::AlignUp(sizeof(GeometryShaderConstants), s_ubo_align));
 
   // We multiply by *4*4 because we need to get down to basic machine units.
   // So multiply by four to get how many floats we have from vec4s
@@ -432,7 +435,7 @@ void ProgramShaderCache::Init()
 
       std::string cache_filename =
           StringFromFormat("%sogl-%s-shaders.cache", File::GetUserPath(D_SHADERCACHE_IDX).c_str(),
-                           SConfig::GetInstance().m_strUniqueID.c_str());
+                           SConfig::GetInstance().m_strGameID.c_str());
 
       ProgramShaderCacheInserter inserter;
       g_program_disk_cache.OpenAndRead(cache_filename, inserter);
@@ -554,7 +557,8 @@ void ProgramShaderCache::CreateHeader()
       "%s\n"  // early-z
       "%s\n"  // 420pack
       "%s\n"  // msaa
-      "%s\n"  // Sampler binding
+      "%s\n"  // Input/output/sampler binding
+      "%s\n"  // Varying location
       "%s\n"  // storage buffer
       "%s\n"  // shader5
       "%s\n"  // SSAA
@@ -595,9 +599,23 @@ void ProgramShaderCache::CreateHeader()
       (g_ogl_config.bSupportsMSAA && v < GLSL_150) ?
           "#extension GL_ARB_texture_multisample : enable" :
           "",
+      // Attribute and fragment output bindings are still done via glBindAttribLocation and
+      // glBindFragDataLocation. In the future this could be moved to the layout qualifier
+      // in GLSL, but requires verification of GL_ARB_explicit_attrib_location.
       g_ActiveConfig.backend_info.bSupportsBindingLayout ?
-          "#define SAMPLER_BINDING(x) layout(binding = x)" :
-          "#define SAMPLER_BINDING(x)",
+          "#define ATTRIBUTE_LOCATION(x)\n"
+          "#define FRAGMENT_OUTPUT_LOCATION(x)\n"
+          "#define FRAGMENT_OUTPUT_LOCATION_INDEXED(x, y)\n"
+          "#define UBO_BINDING(packing, x) layout(packing, binding = x)\n"
+          "#define SAMPLER_BINDING(x) layout(binding = x)\n"
+          "#define SSBO_BINDING(x) layout(binding = x)\n" :
+          "#define ATTRIBUTE_LOCATION(x)\n"
+          "#define FRAGMENT_OUTPUT_LOCATION(x)\n"
+          "#define FRAGMENT_OUTPUT_LOCATION_INDEXED(x, y)\n"
+          "#define UBO_BINDING(packing, x) layout(packing)\n"
+          "#define SAMPLER_BINDING(x)\n",
+      // Input/output blocks are matched by name during program linking
+      "#define VARYING_LOCATION(x)\n",
       !is_glsles && g_ActiveConfig.backend_info.bSupportsBBox ?
           "#extension GL_ARB_shader_storage_buffer_object : enable" :
           "",

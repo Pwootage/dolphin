@@ -18,15 +18,21 @@
 #include <mutex>
 #include <string>
 
+#include "Common/Assert.h"
 #include "Common/CommonTypes.h"
 #include "Common/Event.h"
+#include "Common/FileUtil.h"
 #include "Common/Flag.h"
+#include "Common/Logging/Log.h"
+#include "Common/MsgHandler.h"
 #include "Common/Profiler.h"
 #include "Common/StringUtil.h"
+#include "Common/Thread.h"
 #include "Common/Timer.h"
 
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/CoreTiming.h"
 #include "Core/FifoPlayer/FifoRecorder.h"
 #include "Core/HW/VideoInterface.h"
 #include "Core/Host.h"
@@ -39,6 +45,8 @@
 #include "VideoCommon/Debugger.h"
 #include "VideoCommon/FPSCounter.h"
 #include "VideoCommon/FramebufferManagerBase.h"
+#include "VideoCommon/ImageWrite.h"
+#include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/PostProcessing.h"
 #include "VideoCommon/RenderBase.h"
 #include "VideoCommon/Statistics.h"
@@ -57,12 +65,7 @@ std::mutex Renderer::s_criticalScreenshot;
 std::string Renderer::s_sScreenshotName;
 
 Common::Event Renderer::s_screenshotCompleted;
-
-volatile bool Renderer::s_bScreenshot;
-
-// Final surface changing
-Common::Flag Renderer::s_SurfaceNeedsChanged;
-Common::Event Renderer::s_ChangedSurface;
+Common::Flag Renderer::s_screenshot;
 
 // The framebuffer size
 int Renderer::s_target_width;
@@ -73,6 +76,11 @@ int Renderer::s_backbuffer_width;
 int Renderer::s_backbuffer_height;
 
 std::unique_ptr<PostProcessingShaderImplementation> Renderer::m_post_processor;
+
+// Final surface changing
+Common::Flag Renderer::s_surface_needs_change;
+Common::Event Renderer::s_surface_changed;
+void* Renderer::s_new_surface_handle;
 
 TargetRectangle Renderer::target_rc;
 
@@ -97,14 +105,10 @@ static float AspectToWidescreen(float aspect)
   return aspect * ((16.0f / 9.0f) / (4.0f / 3.0f));
 }
 
-Renderer::Renderer() : frame_data(), bLastFrameDumped(false)
+Renderer::Renderer()
 {
   UpdateActiveConfig();
   TextureCacheBase::OnConfigChanged(g_ActiveConfig);
-
-#if defined _WIN32 || defined HAVE_LIBAV
-  bAVIDumping = false;
-#endif
 
   OSDChoice = 0;
   OSDTime = 0;
@@ -116,10 +120,10 @@ Renderer::~Renderer()
   prev_efb_format = PEControl::INVALID_FMT;
 
   efb_scale_numeratorX = efb_scale_numeratorY = efb_scale_denominatorX = efb_scale_denominatorY = 1;
-#if defined _WIN32 || defined HAVE_LIBAV
-  if (SConfig::GetInstance().m_DumpFrames && bLastFrameDumped && bAVIDumping)
-    AVIDump::Stop();
-#endif
+
+  ShutdownFrameDumping();
+  if (m_frame_dump_thread.joinable())
+    m_frame_dump_thread.join();
 }
 
 void Renderer::RenderToXFB(u32 xfbAddr, const EFBRectangle& sourceRc, u32 fbStride, u32 fbHeight,
@@ -138,8 +142,11 @@ void Renderer::RenderToXFB(u32 xfbAddr, const EFBRectangle& sourceRc, u32 fbStri
   }
   else
   {
+    // The timing is not predictable here. So try to use the XFB path to dump frames.
+    u64 ticks = CoreTiming::GetTicks();
+
     // below div two to convert from bytes to pixels - it expects width, not stride
-    Swap(xfbAddr, fbStride / 2, fbStride / 2, fbHeight, sourceRc, Gamma);
+    Swap(xfbAddr, fbStride / 2, fbStride / 2, fbHeight, sourceRc, ticks, Gamma);
   }
 }
 
@@ -182,7 +189,7 @@ void Renderer::CalculateTargetScale(int x, int y, int* scaledX, int* scaledY)
 }
 
 // return true if target size changed
-bool Renderer::CalculateTargetSize(unsigned int framebuffer_width, unsigned int framebuffer_height)
+bool Renderer::CalculateTargetSize()
 {
   int newEFBWidth, newEFBHeight;
   newEFBWidth = newEFBHeight = 0;
@@ -236,11 +243,10 @@ bool Renderer::CalculateTargetSize(unsigned int framebuffer_width, unsigned int 
     efb_scale_numeratorX = efb_scale_numeratorY = s_last_efb_scale - 3;
     efb_scale_denominatorX = efb_scale_denominatorY = 1;
 
-    int maxSize;
-    maxSize = GetMaxTextureSize();
-    if ((unsigned)maxSize < EFB_WIDTH * efb_scale_numeratorX / efb_scale_denominatorX)
+    const u32 max_size = GetMaxTextureSize();
+    if (max_size < EFB_WIDTH * efb_scale_numeratorX / efb_scale_denominatorX)
     {
-      efb_scale_numeratorX = efb_scale_numeratorY = (maxSize / EFB_WIDTH);
+      efb_scale_numeratorX = efb_scale_numeratorY = (max_size / EFB_WIDTH);
       efb_scale_denominatorX = efb_scale_denominatorY = 1;
     }
 
@@ -299,7 +305,7 @@ void Renderer::SetScreenshot(const std::string& filename)
 {
   std::lock_guard<std::mutex> lk(s_criticalScreenshot);
   s_sScreenshotName = filename;
-  s_bScreenshot = true;
+  s_screenshot.Set();
 }
 
 // Create On-Screen-Messages
@@ -444,10 +450,80 @@ void Renderer::DrawDebugText()
   g_renderer->RenderText(final_yellow, 20, 20, 0xFFFFFF00);
 }
 
-void Renderer::UpdateDrawRectangle(int backbuffer_width, int backbuffer_height)
+float Renderer::CalculateDrawAspectRatio(int target_width, int target_height)
 {
-  float FloatGLWidth = (float)backbuffer_width;
-  float FloatGLHeight = (float)backbuffer_height;
+  // The dimensions are the sizes that are used to create the EFB/backbuffer textures, so
+  // they should always be greater than zero.
+  _assert_(target_width > 0 && target_height > 0);
+  if (g_ActiveConfig.iAspectRatio == ASPECT_STRETCH)
+  {
+    // If stretch is enabled, we prefer the aspect ratio of the window.
+    return (static_cast<float>(target_width) / static_cast<float>(target_height)) /
+           (static_cast<float>(s_backbuffer_width) / static_cast<float>(s_backbuffer_height));
+  }
+
+  // The rendering window aspect ratio as a proportion of the 4:3 or 16:9 ratio
+  if (g_ActiveConfig.iAspectRatio == ASPECT_ANALOG_WIDE ||
+      (g_ActiveConfig.iAspectRatio != ASPECT_ANALOG && Core::g_aspect_wide))
+  {
+    return (static_cast<float>(target_width) / static_cast<float>(target_height)) /
+           AspectToWidescreen(VideoInterface::GetAspectRatio());
+  }
+  else
+  {
+    return (static_cast<float>(target_width) / static_cast<float>(target_height)) /
+           VideoInterface::GetAspectRatio();
+  }
+}
+
+TargetRectangle Renderer::CalculateFrameDumpDrawRectangle()
+{
+  // No point including any borders in the frame dump image, since they'd have to be cropped anyway.
+  TargetRectangle rc;
+  rc.left = 0;
+  rc.top = 0;
+
+  // If full-resolution frame dumping is disabled, just use the window draw rectangle.
+  // Also do this if RealXFB is enabled, since the image has been downscaled for the XFB copy
+  // anyway, and there's no point writing an upscaled frame with no filtering.
+  if (!g_ActiveConfig.bInternalResolutionFrameDumps || g_ActiveConfig.RealXFBEnabled())
+  {
+    // But still remove the borders, since the caller expects this.
+    rc.right = target_rc.GetWidth();
+    rc.bottom = target_rc.GetHeight();
+    return rc;
+  }
+
+  // Grab the dimensions of the EFB textures, we scale either of these depending on the ratio.
+  unsigned int efb_width, efb_height;
+  g_framebuffer_manager->GetTargetSize(&efb_width, &efb_height);
+
+  // Scale either the width or height depending the content aspect ratio.
+  // This way we preserve as much resolution as possible when scaling.
+  float ratio = CalculateDrawAspectRatio(efb_width, efb_height);
+  float draw_width, draw_height;
+  if (ratio >= 1.0f)
+  {
+    // Preserve horizontal resolution, scale vertically.
+    draw_width = static_cast<float>(efb_width);
+    draw_height = static_cast<float>(efb_height) * ratio;
+  }
+  else
+  {
+    // Preserve vertical resolution, scale horizontally.
+    draw_width = static_cast<float>(efb_width) / ratio;
+    draw_height = static_cast<float>(efb_height);
+  }
+
+  rc.right = static_cast<int>(std::ceil(draw_width));
+  rc.bottom = static_cast<int>(std::ceil(draw_height));
+  return rc;
+}
+
+void Renderer::UpdateDrawRectangle()
+{
+  float FloatGLWidth = static_cast<float>(s_backbuffer_width);
+  float FloatGLHeight = static_cast<float>(s_backbuffer_height);
   float FloatXOffset = 0;
   float FloatYOffset = 0;
 
@@ -506,17 +582,7 @@ void Renderer::UpdateDrawRectangle(int backbuffer_width, int backbuffer_height)
   // Check for force-settings and override.
 
   // The rendering window aspect ratio as a proportion of the 4:3 or 16:9 ratio
-  float Ratio;
-  if (g_ActiveConfig.iAspectRatio == ASPECT_ANALOG_WIDE ||
-      (g_ActiveConfig.iAspectRatio != ASPECT_ANALOG && Core::g_aspect_wide))
-  {
-    Ratio = (WinWidth / WinHeight) / AspectToWidescreen(VideoInterface::GetAspectRatio());
-  }
-  else
-  {
-    Ratio = (WinWidth / WinHeight) / VideoInterface::GetAspectRatio();
-  }
-
+  float Ratio = CalculateDrawAspectRatio(s_backbuffer_width, s_backbuffer_height);
   if (g_ActiveConfig.iAspectRatio != ASPECT_STRETCH)
   {
     if (Ratio > 1.0f)
@@ -617,10 +683,10 @@ void Renderer::RecordVideoMemory()
 }
 
 void Renderer::Swap(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, const EFBRectangle& rc,
-                    float Gamma)
+                    u64 ticks, float Gamma)
 {
   // TODO: merge more generic parts into VideoCommon
-  g_renderer->SwapImpl(xfbAddr, fbWidth, fbStride, fbHeight, rc, Gamma);
+  g_renderer->SwapImpl(xfbAddr, fbWidth, fbStride, fbHeight, rc, ticks, Gamma);
 
   if (XFBWrited)
     g_renderer->m_fps_counter.Update();
@@ -638,15 +704,199 @@ void Renderer::Swap(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, const 
   XFBWrited = false;
 }
 
-void Renderer::FlipImageData(u8* data, int w, int h, int pixel_width)
+bool Renderer::IsFrameDumping()
 {
-  for (int y = 0; y < h / 2; ++y)
+  if (s_screenshot.IsSet())
+    return true;
+
+#if defined(HAVE_LIBAV) || defined(_WIN32)
+  if (SConfig::GetInstance().m_DumpFrames)
+    return true;
+#endif
+
+  ShutdownFrameDumping();
+  return false;
+}
+
+void Renderer::ShutdownFrameDumping()
+{
+  if (!m_frame_dump_thread_running.IsSet())
+    return;
+
+  FinishFrameData();
+  m_frame_dump_thread_running.Clear();
+  m_frame_dump_start.Set();
+}
+
+void Renderer::DumpFrameData(const u8* data, int w, int h, int stride, const AVIDump::Frame& state,
+                             bool swap_upside_down)
+{
+  FinishFrameData();
+
+  m_frame_dump_config = FrameDumpConfig{data, w, h, stride, swap_upside_down, state};
+
+  if (!m_frame_dump_thread_running.IsSet())
   {
-    for (int x = 0; x < w; ++x)
+    if (m_frame_dump_thread.joinable())
+      m_frame_dump_thread.join();
+    m_frame_dump_thread_running.Set();
+    m_frame_dump_thread = std::thread(&Renderer::RunFrameDumps, this);
+  }
+
+  m_frame_dump_start.Set();
+  m_frame_dump_frame_running = true;
+}
+
+void Renderer::FinishFrameData()
+{
+  if (!m_frame_dump_frame_running)
+    return;
+
+  m_frame_dump_done.Wait();
+  m_frame_dump_frame_running = false;
+}
+
+void Renderer::RunFrameDumps()
+{
+  Common::SetCurrentThreadName("FrameDumping");
+  bool dump_to_avi = !g_ActiveConfig.bDumpFramesAsImages;
+  bool frame_dump_started = false;
+
+// If Dolphin was compiled without libav, we only support dumping to images.
+#if !defined(HAVE_LIBAV) && !defined(_WIN32)
+  if (dump_to_avi)
+  {
+    WARN_LOG(VIDEO, "AVI frame dump requested, but Dolphin was compiled without libav. "
+                    "Frame dump will be saved as images instead.");
+    dump_to_avi = false;
+  }
+#endif
+
+  while (true)
+  {
+    m_frame_dump_start.Wait();
+    if (!m_frame_dump_thread_running.IsSet())
+      break;
+
+    auto config = m_frame_dump_config;
+
+    if (config.upside_down)
     {
-      for (int delta = 0; delta < pixel_width; ++delta)
-        std::swap(data[(y * w + x) * pixel_width + delta],
-                  data[((h - 1 - y) * w + x) * pixel_width + delta]);
+      config.data = config.data + (config.height - 1) * config.stride;
+      config.stride = -config.stride;
+    }
+
+    // Save screenshot
+    if (s_screenshot.TestAndClear())
+    {
+      std::lock_guard<std::mutex> lk(s_criticalScreenshot);
+
+      if (TextureToPng(config.data, config.stride, s_sScreenshotName, config.width, config.height,
+                       false))
+        OSD::AddMessage("Screenshot saved to " + s_sScreenshotName);
+
+      // Reset settings
+      s_sScreenshotName.clear();
+      s_screenshotCompleted.Set();
+    }
+
+    if (SConfig::GetInstance().m_DumpFrames)
+    {
+      if (!frame_dump_started)
+      {
+        if (dump_to_avi)
+          frame_dump_started = StartFrameDumpToAVI(config);
+        else
+          frame_dump_started = StartFrameDumpToImage(config);
+
+        // Stop frame dumping if we fail to start.
+        if (!frame_dump_started)
+          SConfig::GetInstance().m_DumpFrames = false;
+      }
+
+      // If we failed to start frame dumping, don't write a frame.
+      if (frame_dump_started)
+      {
+        if (dump_to_avi)
+          DumpFrameToAVI(config);
+        else
+          DumpFrameToImage(config);
+      }
+    }
+
+    m_frame_dump_done.Set();
+  }
+
+  if (frame_dump_started)
+  {
+    // No additional cleanup is needed when dumping to images.
+    if (dump_to_avi)
+      StopFrameDumpToAVI();
+  }
+}
+
+#if defined(HAVE_LIBAV) || defined(_WIN32)
+
+bool Renderer::StartFrameDumpToAVI(const FrameDumpConfig& config)
+{
+  return AVIDump::Start(config.width, config.height);
+}
+
+void Renderer::DumpFrameToAVI(const FrameDumpConfig& config)
+{
+  AVIDump::AddFrame(config.data, config.width, config.height, config.stride, config.state);
+}
+
+void Renderer::StopFrameDumpToAVI()
+{
+  AVIDump::Stop();
+}
+
+#else
+
+bool Renderer::StartFrameDumpToAVI(const FrameDumpConfig& config)
+{
+  return false;
+}
+
+void Renderer::DumpFrameToAVI(const FrameDumpConfig& config)
+{
+}
+
+void Renderer::StopFrameDumpToAVI()
+{
+}
+
+#endif  // defined(HAVE_LIBAV) || defined(WIN32)
+
+std::string Renderer::GetFrameDumpNextImageFileName() const
+{
+  return StringFromFormat("%sframedump_%u.png", File::GetUserPath(D_DUMPFRAMES_IDX).c_str(),
+                          m_frame_dump_image_counter);
+}
+
+bool Renderer::StartFrameDumpToImage(const FrameDumpConfig& config)
+{
+  m_frame_dump_image_counter = 1;
+  if (!SConfig::GetInstance().m_DumpFramesSilent)
+  {
+    // Only check for the presence of the first image to confirm overwriting.
+    // A previous run will always have at least one image, and it's safe to assume that if the user
+    // has allowed the first image to be overwritten, this will apply any remaining images as well.
+    std::string filename = GetFrameDumpNextImageFileName();
+    if (File::Exists(filename))
+    {
+      if (!AskYesNoT("Frame dump image(s) '%s' already exists. Overwrite?", filename.c_str()))
+        return false;
     }
   }
+
+  return true;
+}
+
+void Renderer::DumpFrameToImage(const FrameDumpConfig& config)
+{
+  std::string filename = GetFrameDumpNextImageFileName();
+  TextureToPng(config.data, config.stride, filename, config.width, config.height, false);
+  m_frame_dump_image_counter++;
 }

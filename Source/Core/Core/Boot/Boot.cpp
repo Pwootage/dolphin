@@ -6,10 +6,11 @@
 
 #include <zlib.h>
 
+#include "Common/Align.h"
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
-#include "Common/MathUtil.h"
+#include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
 
 #include "Core/Boot/Boot.h"
@@ -17,6 +18,7 @@
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/Debugger/Debugger_SymbolMap.h"
+#include "Core/GeckoCode.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HW/DVDInterface.h"
 #include "Core/HW/EXI_DeviceIPL.h"
@@ -52,7 +54,7 @@ void CBoot::Load_FST(bool _bIsWii)
 
   const DiscIO::IVolume& volume = DVDInterface::GetVolume();
 
-  // copy first 20 bytes of disc to start of Mem 1
+  // copy first 32 bytes of disc to start of Mem 1
   DVDRead(/*offset*/ 0, /*address*/ 0, /*length*/ 0x20, false);
 
   // copy of game id
@@ -70,7 +72,7 @@ void CBoot::Load_FST(bool _bIsWii)
   volume.ReadSwapped(0x0428, &fst_size, _bIsWii);
   volume.ReadSwapped(0x042c, &max_fst_size, _bIsWii);
 
-  u32 arena_high = ROUND_DOWN(0x817FFFFF - (max_fst_size << shift), 0x20);
+  u32 arena_high = Common::AlignDown(0x817FFFFF - (max_fst_size << shift), 0x20);
   Memory::Write_U32(arena_high, 0x00000034);
 
   // load FST
@@ -119,7 +121,7 @@ bool CBoot::FindMapFile(std::string* existing_map_file, std::string* writable_ma
     break;
 
   default:
-    title_id_str = _StartupPara.GetUniqueID();
+    title_id_str = _StartupPara.GetGameID();
     break;
   }
 
@@ -237,6 +239,8 @@ bool CBoot::Load_BS2(const std::string& _rBootROMFilename)
   PowerPC::ppcState.spr[SPR_DBAT1L] = 0x0000002a;
   PowerPC::ppcState.spr[SPR_DBAT3U] = 0xfff0001f;
   PowerPC::ppcState.spr[SPR_DBAT3L] = 0xfff00001;
+  PowerPC::DBATUpdated();
+  PowerPC::IBATUpdated();
   PC = 0x81200150;
   return true;
 }
@@ -270,9 +274,9 @@ bool CBoot::BootUp()
       PanicAlertT("Warning - starting ISO in wrong console mode!");
     }
 
-    std::string unique_id = DVDInterface::GetVolume().GetUniqueID();
-    if (unique_id.size() >= 4)
-      VideoInterface::SetRegionReg(unique_id.at(3));
+    std::string game_id = DVDInterface::GetVolume().GetGameID();
+    if (game_id.size() >= 4)
+      VideoInterface::SetRegionReg(game_id.at(3));
 
     std::vector<u8> tmd_buffer = pVolume.GetTMD();
     if (!tmd_buffer.empty())
@@ -299,7 +303,7 @@ bool CBoot::BootUp()
     }
 
     // Scan for common HLE functions
-    if (_StartupPara.bSkipIdle && _StartupPara.bHLE_BS2 && !_StartupPara.bEnableDebugging)
+    if (_StartupPara.bHLE_BS2 && !_StartupPara.bEnableDebugging)
     {
       PPCAnalyst::FindFunctions(0x80004000, 0x811fffff, &g_symbolDB);
       SignatureDB db;
@@ -377,6 +381,10 @@ bool CBoot::BootUp()
       PowerPC::ppcState.spr[SPR_DBAT4L] = 0x10000002;
       PowerPC::ppcState.spr[SPR_DBAT5U] = 0xd0001fff;
       PowerPC::ppcState.spr[SPR_DBAT5L] = 0x1000002a;
+      if (dolLoader.IsWii())
+        HID4.SBE = 1;
+      PowerPC::DBATUpdated();
+      PowerPC::IBATUpdated();
 
       dolLoader.Load();
       PC = dolLoader.GetEntryPoint();
@@ -477,6 +485,9 @@ bool CBoot::BootUp()
 
   // Not part of the binary itself, but either we or Gecko OS might insert
   // this, and it doesn't clear the icache properly.
-  HLE::Patch(0x800018a8, "GeckoCodehandler");
+  HLE::Patch(Gecko::ENTRY_POINT, "GeckoCodehandler");
+  // This has to always be installed even if cheats are not enabled because of the possiblity of
+  // loading a savestate where PC is inside the code handler while cheats are disabled.
+  HLE::Patch(Gecko::HLE_TRAMPOLINE_ADDRESS, "GeckoHandlerReturnTrampoline");
   return true;
 }

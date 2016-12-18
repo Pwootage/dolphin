@@ -8,8 +8,6 @@
 #include "Common/CommonTypes.h"
 #include "Common/StringUtil.h"
 
-#include "Core/ConfigManager.h"
-
 #include "VideoBackends/D3D/BoundingBox.h"
 #include "VideoBackends/D3D/D3DBase.h"
 #include "VideoBackends/D3D/D3DUtil.h"
@@ -73,6 +71,8 @@ void VideoBackend::InitBackendInfo()
   g_Config.backend_info.bSupportsClipControl = true;
   g_Config.backend_info.bSupportsDepthClamp = true;
   g_Config.backend_info.bSupportsReversedDepthRange = false;
+  g_Config.backend_info.bSupportsMultithreading = false;
+  g_Config.backend_info.bSupportsInternalResolutionFrameDumps = false;
 
   IDXGIFactory* factory;
   IDXGIAdapter* ad;

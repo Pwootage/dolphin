@@ -26,7 +26,7 @@
 #include "Core/PowerPC/Jit64/Jit64_Tables.h"
 #include "Core/PowerPC/Jit64/JitAsm.h"
 #include "Core/PowerPC/Jit64/JitRegCache.h"
-#include "Core/PowerPC/JitCommon/Jit_Util.h"
+#include "Core/PowerPC/Jit64Common/Jit64Util.h"
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/PowerPC/Profiler.h"
@@ -285,7 +285,7 @@ void Jit64::FallBackToInterpreter(UGeckoInstruction inst)
   }
   Interpreter::Instruction instr = GetInterpreterOp(inst);
   ABI_PushRegistersAndAdjustStack({}, 0);
-  ABI_CallFunctionC((void*)instr, inst.hex);
+  ABI_CallFunctionC(instr, inst.hex);
   ABI_PopRegistersAndAdjustStack({}, 0);
   if (js.op->opinfo->flags & FL_ENDBLOCK)
   {
@@ -312,7 +312,7 @@ void Jit64::HLEFunction(UGeckoInstruction _inst)
   gpr.Flush();
   fpr.Flush();
   ABI_PushRegistersAndAdjustStack({}, 0);
-  ABI_CallFunctionCC((void*)&HLE::Execute, js.compilerPC, _inst.hex);
+  ABI_CallFunctionCC(HLE::Execute, js.compilerPC, _inst.hex);
   ABI_PopRegistersAndAdjustStack({}, 0);
 }
 
@@ -341,7 +341,7 @@ static void ImHere()
     if ((been_here.find(PC)->second) & 1023)
       return;
   }
-  DEBUG_LOG(DYNA_REC, "I'm here - PC = %08x , LR = %08x", PC, LR);
+  INFO_LOG(DYNA_REC, "I'm here - PC = %08x , LR = %08x", PC, LR);
   been_here[PC] = 1;
 }
 
@@ -349,10 +349,10 @@ bool Jit64::Cleanup()
 {
   bool did_something = false;
 
-  if (jo.optimizeGatherPipe && js.fifoBytesThisBlock > 0)
+  if (jo.optimizeGatherPipe && js.fifoBytesSinceCheck > 0)
   {
     ABI_PushRegistersAndAdjustStack({}, 0);
-    ABI_CallFunction((void*)&GPFifo::FastCheckGatherPipe);
+    ABI_CallFunction(GPFifo::FastCheckGatherPipe);
     ABI_PopRegistersAndAdjustStack({}, 0);
     did_something = true;
   }
@@ -361,8 +361,8 @@ bool Jit64::Cleanup()
   if (MMCR0.Hex || MMCR1.Hex)
   {
     ABI_PushRegistersAndAdjustStack({}, 0);
-    ABI_CallFunctionCCC((void*)&PowerPC::UpdatePerformanceMonitor, js.downcountAmount,
-                        js.numLoadStoreInst, js.numFloatingPointInst);
+    ABI_CallFunctionCCC(PowerPC::UpdatePerformanceMonitor, js.downcountAmount, js.numLoadStoreInst,
+                        js.numFloatingPointInst);
     ABI_PopRegistersAndAdjustStack({}, 0);
     did_something = true;
   }
@@ -462,7 +462,7 @@ void Jit64::WriteRfiExitDestInRSCRATCH()
   MOV(32, PPCSTATE(npc), R(RSCRATCH));
   Cleanup();
   ABI_PushRegistersAndAdjustStack({}, 0);
-  ABI_CallFunction(reinterpret_cast<void*>(&PowerPC::CheckExceptions));
+  ABI_CallFunction(PowerPC::CheckExceptions);
   ABI_PopRegistersAndAdjustStack({}, 0);
   SUB(32, PPCSTATE(downcount), Imm32(js.downcountAmount));
   JMP(asm_routines.dispatcher, true);
@@ -474,7 +474,7 @@ void Jit64::WriteExceptionExit()
   MOV(32, R(RSCRATCH), PPCSTATE(pc));
   MOV(32, PPCSTATE(npc), R(RSCRATCH));
   ABI_PushRegistersAndAdjustStack({}, 0);
-  ABI_CallFunction(reinterpret_cast<void*>(&PowerPC::CheckExceptions));
+  ABI_CallFunction(PowerPC::CheckExceptions);
   ABI_PopRegistersAndAdjustStack({}, 0);
   SUB(32, PPCSTATE(downcount), Imm32(js.downcountAmount));
   JMP(asm_routines.dispatcher, true);
@@ -486,7 +486,7 @@ void Jit64::WriteExternalExceptionExit()
   MOV(32, R(RSCRATCH), PPCSTATE(pc));
   MOV(32, PPCSTATE(npc), R(RSCRATCH));
   ABI_PushRegistersAndAdjustStack({}, 0);
-  ABI_CallFunction(reinterpret_cast<void*>(&PowerPC::CheckExternalExceptions));
+  ABI_CallFunction(PowerPC::CheckExternalExceptions);
   ABI_PopRegistersAndAdjustStack({}, 0);
   SUB(32, PPCSTATE(downcount), Imm32(js.downcountAmount));
   JMP(asm_routines.dispatcher, true);
@@ -597,7 +597,7 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
   js.firstFPInstructionFound = false;
   js.isLastInstruction = false;
   js.blockStart = em_address;
-  js.fifoBytesThisBlock = 0;
+  js.fifoBytesSinceCheck = 0;
   js.mustCheckFifo = false;
   js.curBlock = b;
   js.numLoadStoreInst = 0;
@@ -612,7 +612,7 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
 
   // Downcount flag check. The last block decremented downcounter, and the flag should still be
   // available.
-  FixupBranch skip = J_CC(CC_NBE);
+  FixupBranch skip = J_CC(CC_G);
   MOV(32, PPCSTATE(pc), Imm32(js.blockStart));
   JMP(asm_routines.doTiming, true);  // downcount hit zero - go doTiming.
   SetJumpTarget(skip);
@@ -620,18 +620,18 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
   const u8* normalEntry = GetCodePtr();
   b->normalEntry = normalEntry;
 
+  // Used to get a trace of the last few blocks before a crash, sometimes VERY useful
   if (ImHereDebug)
   {
     ABI_PushRegistersAndAdjustStack({}, 0);
-    ABI_CallFunction((void*)&ImHere);  // Used to get a trace of the last few blocks before a crash,
-                                       // sometimes VERY useful
+    ABI_CallFunction(ImHere);
     ABI_PopRegistersAndAdjustStack({}, 0);
   }
 
   // Conditionally add profiling code.
   if (Profiler::g_ProfileBlocks)
   {
-    MOV(64, R(RSCRATCH), Imm64((u64)&b->runCount));
+    MOV(64, R(RSCRATCH), ImmPtr(&b->runCount));
     ADD(32, MatR(RSCRATCH), Imm8(1));
     b->ticCounter = 0;
     b->ticStart = 0;
@@ -672,10 +672,10 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
       const u8* target = GetCodePtr();
       MOV(32, PPCSTATE(pc), Imm32(js.blockStart));
       ABI_PushRegistersAndAdjustStack({}, 0);
-      ABI_CallFunctionC((void*)&JitInterface::CompileExceptionCheck,
+      ABI_CallFunctionC(JitInterface::CompileExceptionCheck,
                         (u32)JitInterface::ExceptionType::EXCEPTIONS_PAIRED_QUANTIZE);
       ABI_PopRegistersAndAdjustStack({}, 0);
-      JMP(asm_routines.dispatcher, true);
+      JMP(asm_routines.dispatcherNoCheck, true);
       SwitchToNearCode();
 
       // Insert a check that the GQRs are still the value we expect at
@@ -688,6 +688,12 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
         J_CC(CC_NZ, target);
       }
     }
+  }
+
+  if (js.noSpeculativeConstantsAddresses.find(js.blockStart) ==
+      js.noSpeculativeConstantsAddresses.end())
+  {
+    IntializeSpeculativeConstants();
   }
 
   // Translate instructions
@@ -724,14 +730,13 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
         js.fifoWriteAddresses.find(ops[i].address) != js.fifoWriteAddresses.end();
 
     // Gather pipe writes using an immediate address are explicitly tracked.
-    if (jo.optimizeGatherPipe && (js.fifoBytesThisBlock >= 32 || js.mustCheckFifo))
+    if (jo.optimizeGatherPipe && (js.fifoBytesSinceCheck >= 32 || js.mustCheckFifo))
     {
-      if (js.fifoBytesThisBlock >= 32)
-        js.fifoBytesThisBlock -= 32;
+      js.fifoBytesSinceCheck = 0;
       js.mustCheckFifo = false;
       BitSet32 registersInUse = CallerSavedRegistersInUse();
       ABI_PushRegistersAndAdjustStack(registersInUse, 0);
-      ABI_CallFunction((void*)&GPFifo::FastCheckGatherPipe);
+      ABI_CallFunction(GPFifo::FastCheckGatherPipe);
       ABI_PopRegistersAndAdjustStack(registersInUse, 0);
       gatherPipeIntCheck = true;
     }
@@ -820,7 +825,7 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
 
         MOV(32, PPCSTATE(pc), Imm32(ops[i].address));
         ABI_PushRegistersAndAdjustStack({}, 0);
-        ABI_CallFunction(reinterpret_cast<void*>(&PowerPC::CheckBreakPoints));
+        ABI_CallFunction(PowerPC::CheckBreakPoints);
         ABI_PopRegistersAndAdjustStack({}, 0);
         TEST(32, M(CPU::GetStatePtr()), Imm32(0xFFFFFFFF));
         FixupBranch noBreakpoint = J_CC(CC_Z);
@@ -966,4 +971,40 @@ void Jit64::EnableOptimization()
   analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_BRANCH_MERGE);
   analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_CROR_MERGE);
   analyzer.SetOption(PPCAnalyst::PPCAnalyzer::OPTION_CARRY_MERGE);
+}
+
+void Jit64::IntializeSpeculativeConstants()
+{
+  // If the block depends on an input register which looks like a gather pipe or MMIO related
+  // constant, guess that it is actually a constant input, and specialize the block based on this
+  // assumption. This happens when there are branches in code writing to the gather pipe, but only
+  // the first block loads the constant.
+  // Insert a check at the start of the block to verify that the value is actually constant.
+  // This can save a lot of backpatching and optimize gather pipe writes in more places.
+  const u8* target = nullptr;
+  for (auto i : code_block.m_gpr_inputs)
+  {
+    u32 compileTimeValue = PowerPC::ppcState.gpr[i];
+    if (PowerPC::IsOptimizableGatherPipeWrite(compileTimeValue) ||
+        PowerPC::IsOptimizableGatherPipeWrite(compileTimeValue - 0x8000) ||
+        compileTimeValue == 0xCC000000)
+    {
+      if (!target)
+      {
+        SwitchToFarCode();
+        target = GetCodePtr();
+        MOV(32, PPCSTATE(pc), Imm32(js.blockStart));
+        ABI_PushRegistersAndAdjustStack({}, 0);
+        ABI_CallFunctionC(
+            JitInterface::CompileExceptionCheck,
+            static_cast<u32>(JitInterface::ExceptionType::EXCEPTIONS_SPECULATIVE_CONSTANTS));
+        ABI_PopRegistersAndAdjustStack({}, 0);
+        JMP(asm_routines.dispatcher, true);
+        SwitchToNearCode();
+      }
+      CMP(32, PPCSTATE(gpr[i]), Imm32(compileTimeValue));
+      J_CC(CC_NZ, target);
+      gpr.SetImmediate32(i, compileTimeValue, false);
+    }
+  }
 }

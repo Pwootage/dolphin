@@ -9,11 +9,11 @@
 #include <strsafe.h>
 #include <unordered_map>
 
+#include "Common/Align.h"
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/MathUtil.h"
 
-#include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/Host.h"
 
@@ -34,7 +34,6 @@
 #include "VideoCommon/AVIDump.h"
 #include "VideoCommon/BPFunctions.h"
 #include "VideoCommon/Fifo.h"
-#include "VideoCommon/ImageWrite.h"
 #include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/PixelEngine.h"
 #include "VideoCommon/PixelShaderManager.h"
@@ -182,7 +181,7 @@ void CreateScreenshotTexture()
   // This texture is released to be recreated when the window is resized in Renderer::SwapImpl.
 
   const unsigned int screenshot_buffer_size =
-      D3D::AlignValue(D3D::GetBackBufferWidth() * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) *
+      Common::AlignUp(D3D::GetBackBufferWidth() * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT) *
       D3D::GetBackBufferHeight();
 
   CheckHR(D3D::device12->CreateCommittedResource(
@@ -224,13 +223,13 @@ Renderer::Renderer(void*& window_handle)
   FramebufferManagerBase::SetLastXfbWidth(MAX_XFB_WIDTH);
   FramebufferManagerBase::SetLastXfbHeight(MAX_XFB_HEIGHT);
 
-  UpdateDrawRectangle(s_backbuffer_width, s_backbuffer_height);
+  UpdateDrawRectangle();
 
   s_last_multisamples = g_ActiveConfig.iMultisamples;
   s_last_efb_scale = g_ActiveConfig.iEFBScale;
   s_last_stereo_mode = g_ActiveConfig.iStereoMode > 0;
   s_last_xfb_mode = g_ActiveConfig.bUseRealXFB;
-  CalculateTargetSize(s_backbuffer_width, s_backbuffer_height);
+  CalculateTargetSize();
   PixelShaderManager::SetEfbScaleChanged();
 
   SetupDeviceObjects();
@@ -508,9 +507,10 @@ void Renderer::ClearScreen(const EFBRectangle& rc, bool color_enable, bool alpha
   D3D12_DEPTH_STENCIL_DESC* depth_stencil_desc = nullptr;
 
   // EXISTINGD3D11TODO: Should we enable Z testing here?
-  /*if (!bpmem.zmode.testenable) depth_stencil_desc = &s_clear_depth_descs[CLEAR_DEPTH_DESC_DEPTH_DISABLED];
-	else */ if (
-      z_enable)
+  /*if (!bpmem.zmode.testenable) depth_stencil_desc =
+  &s_clear_depth_descs[CLEAR_DEPTH_DESC_DEPTH_DISABLED];
+  else */
+  if (z_enable)
     depth_stencil_desc = &s_clear_depth_descs[CLEAR_DEPTH_DESC_DEPTH_ENABLED_WRITES_ENABLED];
   else /*if (!z_enable)*/
     depth_stencil_desc = &s_clear_depth_descs[CLEAR_DEPTH_DESC_DEPTH_ENABLED_WRITES_DISABLED];
@@ -592,8 +592,8 @@ void Renderer::SetBlendMode(bool force_update)
       D3D12_BLEND_ONE,
       D3D12_BLEND_DEST_COLOR,
       D3D12_BLEND_INV_DEST_COLOR,
-      D3D12_BLEND_SRC_ALPHA,
-      D3D12_BLEND_INV_SRC_ALPHA,  // NOTE: Use SRC1_ALPHA if dst alpha is enabled!
+      D3D12_BLEND_SRC1_ALPHA,
+      D3D12_BLEND_INV_SRC1_ALPHA,
       (target_has_alpha) ? D3D12_BLEND_DEST_ALPHA : D3D12_BLEND_ONE,
       (target_has_alpha) ? D3D12_BLEND_INV_DEST_ALPHA : D3D12_BLEND_ZERO};
   const D3D12_BLEND d3d_dst_factors[8] = {
@@ -601,8 +601,8 @@ void Renderer::SetBlendMode(bool force_update)
       D3D12_BLEND_ONE,
       D3D12_BLEND_SRC_COLOR,
       D3D12_BLEND_INV_SRC_COLOR,
-      D3D12_BLEND_SRC_ALPHA,
-      D3D12_BLEND_INV_SRC_ALPHA,  // NOTE: Use SRC1_ALPHA if dst alpha is enabled!
+      D3D12_BLEND_SRC1_ALPHA,
+      D3D12_BLEND_INV_SRC1_ALPHA,
       (target_has_alpha) ? D3D12_BLEND_DEST_ALPHA : D3D12_BLEND_ONE,
       (target_has_alpha) ? D3D12_BLEND_INV_DEST_ALPHA : D3D12_BLEND_ZERO};
 
@@ -630,89 +630,12 @@ void Renderer::SetBlendMode(bool force_update)
   D3D::command_list_mgr->SetCommandListDirtyState(COMMAND_LIST_STATE_PSO, true);
 }
 
-bool Renderer::SaveScreenshot(const std::string& filename, const TargetRectangle& rc)
-{
-  if (!s_screenshot_texture)
-    CreateScreenshotTexture();
-
-  // copy back buffer to system memory
-  bool saved_png = false;
-
-  D3D12_BOX source_box = GetScreenshotSourceBox(rc);
-
-  D3D12_TEXTURE_COPY_LOCATION dst_location = {};
-  dst_location.pResource = s_screenshot_texture;
-  dst_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-  dst_location.PlacedFootprint.Offset = 0;
-  dst_location.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-  dst_location.PlacedFootprint.Footprint.Width = D3D::GetBackBufferWidth();
-  dst_location.PlacedFootprint.Footprint.Height = D3D::GetBackBufferHeight();
-  dst_location.PlacedFootprint.Footprint.Depth = 1;
-  dst_location.PlacedFootprint.Footprint.RowPitch = D3D::AlignValue(
-      dst_location.PlacedFootprint.Footprint.Width * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-
-  D3D12_TEXTURE_COPY_LOCATION src_location = {};
-  src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-  src_location.SubresourceIndex = 0;
-  src_location.pResource = D3D::GetBackBuffer()->GetTex12();
-
-  D3D::GetBackBuffer()->TransitionToResourceState(D3D::current_command_list,
-                                                  D3D12_RESOURCE_STATE_COPY_SOURCE);
-  D3D::current_command_list->CopyTextureRegion(&dst_location, 0, 0, 0, &src_location, &source_box);
-
-  D3D::command_list_mgr->ExecuteQueuedWork(true);
-
-  void* screenshot_texture_map;
-  D3D12_RANGE read_range = {0, dst_location.PlacedFootprint.Footprint.RowPitch *
-                                   (source_box.bottom - source_box.top)};
-  CheckHR(s_screenshot_texture->Map(0, &read_range, &screenshot_texture_map));
-
-  saved_png = TextureToPng(
-      static_cast<u8*>(screenshot_texture_map), dst_location.PlacedFootprint.Footprint.RowPitch,
-      filename, source_box.right - source_box.left, source_box.bottom - source_box.top, false);
-
-  D3D12_RANGE write_range = {};
-  s_screenshot_texture->Unmap(0, &write_range);
-
-  if (saved_png)
-  {
-    OSD::AddMessage(
-        StringFromFormat("Saved %i x %i %s", rc.GetWidth(), rc.GetHeight(), filename.c_str()));
-  }
-  else
-  {
-    OSD::AddMessage(StringFromFormat("Error saving %s", filename.c_str()));
-  }
-
-  return saved_png;
-}
-
-void formatBufferDump(const u8* in, u8* out, int w, int h, int p)
-{
-  for (int y = 0; y < h; ++y)
-  {
-    auto line = (in + (h - y - 1) * p);
-    for (int x = 0; x < w; ++x)
-    {
-      out[0] = line[2];
-      out[1] = line[1];
-      out[2] = line[0];
-      out += 3;
-      line += 4;
-    }
-  }
-}
-
 // This function has the final picture. We adjust the aspect ratio here.
 void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height,
-                        const EFBRectangle& rc, float gamma)
+                        const EFBRectangle& rc, u64 ticks, float gamma)
 {
-  if (Fifo::WillSkipCurrentFrame() || (!XFBWrited && !g_ActiveConfig.RealXFBEnabled()) ||
-      !fb_width || !fb_height)
+  if ((!XFBWrited && !g_ActiveConfig.RealXFBEnabled()) || !fb_width || !fb_height)
   {
-    if (SConfig::GetInstance().m_DumpFrames && !frame_data.empty())
-      AVIDump::AddFrame(&frame_data[0], fb_width, fb_height);
-
     Core::Callback_VideoCopiedToXFB(false);
     return;
   }
@@ -722,9 +645,6 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
       FramebufferManager::GetXFBSource(xfb_addr, fb_stride, fb_height, &xfb_count);
   if ((!xfb_source_list || xfb_count == 0) && g_ActiveConfig.bUseXFB && !g_ActiveConfig.bUseRealXFB)
   {
-    if (SConfig::GetInstance().m_DumpFrames && !frame_data.empty())
-      AVIDump::AddFrame(&frame_data[0], fb_width, fb_height);
-
     Core::Callback_VideoCopiedToXFB(false);
     return;
   }
@@ -735,7 +655,7 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
   BBox::Invalidate();
 
   // Prepare to copy the XFBs to our backbuffer
-  UpdateDrawRectangle(s_backbuffer_width, s_backbuffer_height);
+  UpdateDrawRectangle();
   TargetRectangle target_rc = GetTargetRectangle();
 
   D3D::GetBackBuffer()->TransitionToResourceState(D3D::current_command_list,
@@ -819,19 +739,8 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
     BlitScreen(source_rc, target_rc, read_texture, GetTargetWidth(), GetTargetHeight(), gamma);
   }
 
-  // done with drawing the game stuff, good moment to save a screenshot
-  if (s_bScreenshot)
-  {
-    std::lock_guard<std::mutex> guard(s_criticalScreenshot);
-
-    SaveScreenshot(s_sScreenshotName, GetTargetRectangle());
-    s_sScreenshotName.clear();
-    s_bScreenshot = false;
-    s_screenshotCompleted.Set();
-  }
-
   // Dump frames
-  if (SConfig::GetInstance().m_DumpFrames)
+  if (IsFrameDumping())
   {
     if (!s_screenshot_texture)
       CreateScreenshotTexture();
@@ -849,7 +758,7 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
     dst_location.PlacedFootprint.Footprint.Width = GetTargetRectangle().GetWidth();
     dst_location.PlacedFootprint.Footprint.Height = GetTargetRectangle().GetHeight();
     dst_location.PlacedFootprint.Footprint.Depth = 1;
-    dst_location.PlacedFootprint.Footprint.RowPitch = D3D::AlignValue(
+    dst_location.PlacedFootprint.Footprint.RowPitch = Common::AlignUp(
         dst_location.PlacedFootprint.Footprint.Width * 4, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
     D3D12_TEXTURE_COPY_LOCATION src_location = {};
@@ -864,52 +773,17 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
 
     D3D::command_list_mgr->ExecuteQueuedWork(true);
 
-    if (!bLastFrameDumped)
-    {
-      bAVIDumping = AVIDump::Start(source_width, source_height, AVIDump::DumpFormat::FORMAT_BGR);
-      if (!bAVIDumping)
-      {
-        PanicAlert("Error dumping frames to AVI.");
-      }
-      else
-      {
-        std::string msg = StringFromFormat("Dumping Frames to \"%sframedump0.avi\" (%dx%d RGB24)",
-                                           File::GetUserPath(D_DUMPFRAMES_IDX).c_str(),
-                                           source_width, source_height);
+    void* screenshot_texture_map;
+    D3D12_RANGE read_range = {0, dst_location.PlacedFootprint.Footprint.RowPitch * source_height};
+    CheckHR(s_screenshot_texture->Map(0, &read_range, &screenshot_texture_map));
 
-        OSD::AddMessage(msg, 2000);
-      }
-    }
-    if (bAVIDumping)
-    {
-      if (frame_data.capacity() != 3 * source_width * source_height)
-        frame_data.resize(3 * source_width * source_height);
+    AVIDump::Frame state = AVIDump::FetchState(ticks);
+    DumpFrameData(reinterpret_cast<const u8*>(screenshot_texture_map), source_width, source_height,
+                  dst_location.PlacedFootprint.Footprint.RowPitch, state);
+    FinishFrameData();
 
-      void* screenshot_texture_map;
-      D3D12_RANGE read_range = {0, dst_location.PlacedFootprint.Footprint.RowPitch * source_height};
-      CheckHR(s_screenshot_texture->Map(0, &read_range, &screenshot_texture_map));
-      formatBufferDump(static_cast<u8*>(screenshot_texture_map), &frame_data[0], source_width,
-                       source_height, dst_location.PlacedFootprint.Footprint.RowPitch);
-
-      D3D12_RANGE write_range = {};
-      s_screenshot_texture->Unmap(0, &write_range);
-
-      FlipImageData(&frame_data[0], source_width, source_height);
-      AVIDump::AddFrame(&frame_data[0], source_width, source_height);
-    }
-    bLastFrameDumped = true;
-  }
-  else
-  {
-    if (bLastFrameDumped && bAVIDumping)
-    {
-      std::vector<u8>().swap(frame_data);
-
-      AVIDump::Stop();
-      bAVIDumping = false;
-      OSD::AddMessage("Stop dumping frames to AVI", 2000);
-    }
-    bLastFrameDumped = false;
+    D3D12_RANGE write_range = {};
+    s_screenshot_texture->Unmap(0, &write_range);
   }
 
   // Reset viewport for drawing text
@@ -929,8 +803,6 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
   SetWindowSize(fb_stride, fb_height);
 
   const bool window_resized = CheckForResize();
-  const bool fullscreen = g_ActiveConfig.bFullscreen && !g_ActiveConfig.bBorderlessFullscreen &&
-                          !SConfig::GetInstance().bRenderToMain;
 
   bool xfb_changed = s_last_xfb_mode != g_ActiveConfig.bUseRealXFB;
 
@@ -948,8 +820,8 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
   D3D::Present();
 
   // Resize the back buffers NOW to avoid flickering
-  if (CalculateTargetSize(s_backbuffer_width, s_backbuffer_height) || xfb_changed ||
-      window_resized || s_last_efb_scale != g_ActiveConfig.iEFBScale ||
+  if (CalculateTargetSize() || xfb_changed || window_resized ||
+      s_last_efb_scale != g_ActiveConfig.iEFBScale ||
       s_last_multisamples != g_ActiveConfig.iMultisamples ||
       s_last_stereo_mode != (g_ActiveConfig.iStereoMode > 0))
   {
@@ -980,7 +852,7 @@ void Renderer::SwapImpl(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height
       s_backbuffer_height = D3D::GetBackBufferHeight();
     }
 
-    UpdateDrawRectangle(s_backbuffer_width, s_backbuffer_height);
+    UpdateDrawRectangle();
 
     s_last_efb_scale = g_ActiveConfig.iEFBScale;
     s_last_stereo_mode = g_ActiveConfig.iStereoMode > 0;
@@ -1287,7 +1159,7 @@ void Renderer::SetInterlacingMode()
   // EXISTINGD3D11TODO
 }
 
-int Renderer::GetMaxTextureSize()
+u32 Renderer::GetMaxTextureSize()
 {
   return DX12::D3D::GetMaxTextureSize();
 }

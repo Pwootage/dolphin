@@ -24,26 +24,23 @@ static const u16 trigger_bitmasks[] = {
 static const u16 dpad_bitmasks[] = {PAD_BUTTON_UP, PAD_BUTTON_DOWN, PAD_BUTTON_LEFT,
                                     PAD_BUTTON_RIGHT};
 
-static const char* const named_buttons[] = {"A",          "B", "X", "Y", "Z", _trans("Start"),
-                                            _trans("Mic")};
+static const char* const named_buttons[] = {"A", "B", "X", "Y", "Z", _trans("Start")};
 
 static const char* const named_triggers[] = {
-    // i18n:  Left
+    // i18n: The left trigger button (labeled L on real controllers)
     _trans("L"),
-    // i18n:  Right
+    // i18n: The right trigger button (labeled R on real controllers)
     _trans("R"),
-    // i18n:  Left-Analog
+    // i18n: The left trigger button (labeled L on real controllers) used as an analog input
     _trans("L-Analog"),
-    // i18n:  Right-Analog
+    // i18n: The right trigger button (labeled R on real controllers) used as an analog input
     _trans("R-Analog")};
 
 GCPad::GCPad(const unsigned int index) : m_index(index)
 {
-  int const mic_hax = index > 1;
-
   // buttons
   groups.emplace_back(m_buttons = new Buttons(_trans("Buttons")));
-  for (unsigned int i = 0; i < sizeof(named_buttons) / sizeof(*named_buttons) - mic_hax; ++i)
+  for (unsigned int i = 0; i < sizeof(named_buttons) / sizeof(*named_buttons); ++i)
     m_buttons->controls.emplace_back(new ControlGroup::Input(named_buttons[i]));
 
   // sticks
@@ -61,6 +58,10 @@ GCPad::GCPad(const unsigned int index) : m_index(index)
   groups.emplace_back(m_rumble = new ControlGroup(_trans("Rumble")));
   m_rumble->controls.emplace_back(new ControlGroup::Output(_trans("Motor")));
 
+  // Microphone
+  groups.emplace_back(m_mic = new Buttons(_trans("Microphone")));
+  m_mic->controls.emplace_back(new ControlGroup::Input(_trans("Button")));
+
   // dpad
   groups.emplace_back(m_dpad = new Buttons(_trans("D-Pad")));
   for (auto& named_direction : named_directions)
@@ -77,6 +78,31 @@ GCPad::GCPad(const unsigned int index) : m_index(index)
 std::string GCPad::GetName() const
 {
   return std::string("GCPad") + char('1' + m_index);
+}
+
+ControllerEmu::ControlGroup* GCPad::GetGroup(PadGroup group)
+{
+  switch (group)
+  {
+  case PadGroup::Buttons:
+    return m_buttons;
+  case PadGroup::MainStick:
+    return m_main_stick;
+  case PadGroup::CStick:
+    return m_c_stick;
+  case PadGroup::DPad:
+    return m_dpad;
+  case PadGroup::Triggers:
+    return m_triggers;
+  case PadGroup::Rumble:
+    return m_rumble;
+  case PadGroup::Mic:
+    return m_mic;
+  case PadGroup::Options:
+    return m_options;
+  default:
+    return nullptr;
+  }
 }
 
 GCPadStatus GCPad::GetInput() const
@@ -197,5 +223,5 @@ void GCPad::LoadDefaults(const ControllerInterface& ciface)
 bool GCPad::GetMicButton() const
 {
   auto lock = ControllerEmu::GetStateLock();
-  return (0.0f != m_buttons->controls.back()->control_ref->State());
+  return (0.0f != m_mic->controls.back()->control_ref->State());
 }

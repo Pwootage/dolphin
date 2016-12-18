@@ -131,7 +131,7 @@ struct Header  // Offset    Size    Description
     memset(this, 0xFF, BLOCK_SIZE);
     *(u16*)SizeMb = BE16(sizeMb);
     Encoding = BE16(ascii ? 0 : 1);
-    u64 rand = CEXIIPL::GetGCTime();
+    u64 rand = CEXIIPL::GetEmulatedTime(CEXIIPL::GC_EPOCH);
     formatTime = Common::swap64(rand);
     for (int i = 0; i < 12; i++)
     {
@@ -157,24 +157,7 @@ struct DEntry
   {
     std::string filename = std::string((char*)Makercode, 2) + '-' +
                            std::string((char*)Gamecode, 4) + '-' + (char*)Filename + ".gci";
-    static Common::replace_v replacements;
-    if (replacements.size() == 0)
-    {
-      Common::ReadReplacements(replacements);
-      // Cannot add \r to replacements file due to it being a line ending char
-      // / might be ok, but we need to verify that this is only used on filenames
-      // as it is a dir_sep
-      replacements.push_back(std::make_pair('\r', std::string("__0d__")));
-      replacements.push_back(std::make_pair('/', std::string("__2f__")));
-    }
-
-    // Replaces chars that FAT32 can't support with strings defined in /sys/replace
-    for (auto& replacement : replacements)
-    {
-      for (size_t j = 0; (j = filename.find(replacement.first, j)) != filename.npos; ++j)
-        filename.replace(j, 1, replacement.second);
-    }
-    return filename;
+    return Common::EscapeFileName(filename);
   }
 
   u8 Gamecode[4];   // 0x00       0x04    Gamecode

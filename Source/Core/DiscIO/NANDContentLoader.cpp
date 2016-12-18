@@ -14,11 +14,11 @@
 #include <utility>
 #include <vector>
 
+#include "Common/Align.h"
 #include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
-#include "Common/MathUtil.h"
 #include "Common/MsgHandler.h"
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
@@ -29,6 +29,8 @@
 
 namespace DiscIO
 {
+CNANDContentData::~CNANDContentData() = default;
+
 CSharedContent::CSharedContent()
 {
   UpdateLocation();
@@ -94,6 +96,12 @@ std::string CSharedContent::AddSharedContent(const u8* hash)
   return filename;
 }
 
+CNANDContentDataFile::CNANDContentDataFile(const std::string& filename) : m_filename{filename}
+{
+}
+
+CNANDContentDataFile::~CNANDContentDataFile() = default;
+
 void CNANDContentDataFile::EnsureOpen()
 {
   if (!m_file)
@@ -105,18 +113,18 @@ void CNANDContentDataFile::Open()
 {
   EnsureOpen();
 }
-const std::vector<u8> CNANDContentDataFile::Get()
+std::vector<u8> CNANDContentDataFile::Get()
 {
-  std::vector<u8> result;
   EnsureOpen();
+
   if (!m_file->IsGood())
-    return result;
+    return {};
 
   u64 size = m_file->GetSize();
   if (size == 0)
-    return result;
+    return {};
 
-  result.resize(size);
+  std::vector<u8> result(size);
   m_file->ReadBytes(result.data(), result.size());
 
   return result;
@@ -256,7 +264,7 @@ void CNANDContentLoader::InitializeContentEntries(const std::vector<u8>& tmd,
 
     if (m_IsWAD)
     {
-      u32 rounded_size = ROUND_UP(content.m_Size, 0x40);
+      u32 rounded_size = Common::AlignUp(content.m_Size, 0x40);
 
       iv.fill(0);
       std::copy(&tmd[entry_offset + 0x01E8], &tmd[entry_offset + 0x01E8 + 2], iv.begin());

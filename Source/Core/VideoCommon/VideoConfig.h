@@ -63,8 +63,6 @@ struct VideoConfig final
 
   // General
   bool bVSync;
-  bool bFullscreen;
-  bool bExclusiveMode;
   bool bRunning;
   bool bWidescreenHack;
   int iAspectRatio;
@@ -79,6 +77,7 @@ struct VideoConfig final
   bool bForceFiltering;
   int iMaxAnisotropy;
   std::string sPostProcessingShader;
+  bool bForceTrueColor;
 
   // Information
   bool bShowFPS;
@@ -100,7 +99,9 @@ struct VideoConfig final
   bool bConvertHiresTextures;
   bool bCacheHiresTextures;
   bool bDumpEFBTarget;
+  bool bDumpFramesAsImages;
   bool bUseFFV1;
+  bool bInternalResolutionFrameDumps;
   bool bFreeLook;
   bool bBorderlessFullscreen;
 
@@ -143,6 +144,16 @@ struct VideoConfig final
   bool bDumpTevStages;
   bool bDumpTevTextureFetches;
 
+  // Enable API validation layers, currently only supported with Vulkan.
+  bool bEnableValidationLayer;
+
+  // Multithreaded submission, currently only supported with Vulkan.
+  bool bBackendMultithreading;
+
+  // Early command buffer execution interval in number of draws.
+  // Currently only supported with Vulkan.
+  int iCommandBufferExecuteInterval;
+
   // Static config per API
   // TODO: Move this out of VideoConfig
   struct
@@ -173,6 +184,8 @@ struct VideoConfig final
     bool bSupportsSSAA;
     bool bSupportsDepthClamp;  // Needed by VertexShaderGen, so must stay in VideoCommon
     bool bSupportsReversedDepthRange;
+    bool bSupportsMultithreading;
+    bool bSupportsInternalResolutionFrameDumps;
   } backend_info;
 
   // Utility

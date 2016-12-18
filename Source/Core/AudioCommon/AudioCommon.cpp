@@ -16,9 +16,7 @@
 #include "Common/Common.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
-#include "Common/MsgHandler.h"
 #include "Core/ConfigManager.h"
-#include "Core/Movie.h"
 
 // This shouldn't be a global, at least not here.
 std::unique_ptr<SoundStream> g_sound_stream;
@@ -115,6 +113,30 @@ std::vector<std::string> GetSoundBackends()
   if (OpenSLESStream::isValid())
     backends.push_back(BACKEND_OPENSLES);
   return backends;
+}
+
+bool SupportsDPL2Decoder(const std::string& backend)
+{
+#ifndef __APPLE__
+  if (backend == BACKEND_OPENAL)
+    return true;
+#endif
+  if (backend == BACKEND_PULSEAUDIO)
+    return true;
+  return false;
+}
+
+bool SupportsLatencyControl(const std::string& backend)
+{
+  return backend == BACKEND_OPENAL;
+}
+
+bool SupportsVolumeChanges(const std::string& backend)
+{
+  // FIXME: this one should ask the backend whether it supports it.
+  //       but getting the backend from string etc. is probably
+  //       too much just to enable/disable a stupid slider...
+  return backend == BACKEND_COREAUDIO || backend == BACKEND_OPENAL || backend == BACKEND_XAUDIO2;
 }
 
 void UpdateSoundStream()
