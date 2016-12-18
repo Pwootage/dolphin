@@ -151,9 +151,9 @@ enum
 void Jit64::AllocStack()
 {
 #ifndef _WIN32
-  m_stack = (u8*)AllocateMemoryPages(STACK_SIZE);
-  ReadProtectMemory(m_stack, GUARD_SIZE);
-  ReadProtectMemory(m_stack + GUARD_OFFSET, GUARD_SIZE);
+  m_stack = static_cast<u8*>(Common::AllocateMemoryPages(STACK_SIZE));
+  Common::ReadProtectMemory(m_stack, GUARD_SIZE);
+  Common::ReadProtectMemory(m_stack + GUARD_OFFSET, GUARD_SIZE);
 #else
   // For windows we just keep using the system stack and reserve a large amount of memory at the end
   // of the stack.
@@ -167,7 +167,7 @@ void Jit64::FreeStack()
 #ifndef _WIN32
   if (m_stack)
   {
-    FreeMemoryPages(m_stack, STACK_SIZE);
+    Common::FreeMemoryPages(m_stack, STACK_SIZE);
     m_stack = nullptr;
   }
 #endif
@@ -186,7 +186,7 @@ bool Jit64::HandleStackFault()
   m_enable_blr_optimization = false;
 #ifndef _WIN32
   // Windows does this automatically.
-  UnWriteProtectMemory(m_stack + GUARD_OFFSET, GUARD_SIZE);
+  Common::UnWriteProtectMemory(m_stack + GUARD_OFFSET, GUARD_SIZE);
 #endif
   // We're going to need to clear the whole cache to get rid of the bad
   // CALLs, but we can't yet.  Fake the downcount so we're forced to the
@@ -396,29 +396,12 @@ void Jit64::JustWriteExit(u32 destination, bool bl, u32 after)
   linkData.exitAddress = destination;
   linkData.linkStatus = false;
 
-  // Link opportunity!
-  int block;
-  if (jo.enableBlocklink && (block = blocks.GetBlockNumberFromStartAddress(destination)) >= 0)
-  {
-    // It exists! Joy of joy!
-    JitBlock* jb = blocks.GetBlock(block);
-    const u8* addr = jb->checkedEntry;
-    linkData.exitPtrs = GetWritableCodePtr();
-    if (bl)
-      CALL(addr);
-    else
-      JMP(addr, true);
-    linkData.linkStatus = true;
-  }
+  MOV(32, PPCSTATE(pc), Imm32(destination));
+  linkData.exitPtrs = GetWritableCodePtr();
+  if (bl)
+    CALL(asm_routines.dispatcher);
   else
-  {
-    MOV(32, PPCSTATE(pc), Imm32(destination));
-    linkData.exitPtrs = GetWritableCodePtr();
-    if (bl)
-      CALL(asm_routines.dispatcher);
-    else
-      JMP(asm_routines.dispatcher, true);
-  }
+    JMP(asm_routines.dispatcher, true);
 
   b->linkData.push_back(linkData);
 
@@ -615,6 +598,7 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
   js.isLastInstruction = false;
   js.blockStart = em_address;
   js.fifoBytesThisBlock = 0;
+  js.mustCheckFifo = false;
   js.curBlock = b;
   js.numLoadStoreInst = 0;
   js.numFloatingPointInst = 0;
@@ -740,9 +724,11 @@ const u8* Jit64::DoJit(u32 em_address, PPCAnalyst::CodeBuffer* code_buf, JitBloc
         js.fifoWriteAddresses.find(ops[i].address) != js.fifoWriteAddresses.end();
 
     // Gather pipe writes using an immediate address are explicitly tracked.
-    if (jo.optimizeGatherPipe && js.fifoBytesThisBlock >= 32)
+    if (jo.optimizeGatherPipe && (js.fifoBytesThisBlock >= 32 || js.mustCheckFifo))
     {
-      js.fifoBytesThisBlock -= 32;
+      if (js.fifoBytesThisBlock >= 32)
+        js.fifoBytesThisBlock -= 32;
+      js.mustCheckFifo = false;
       BitSet32 registersInUse = CallerSavedRegistersInUse();
       ABI_PushRegistersAndAdjustStack(registersInUse, 0);
       ABI_CallFunction((void*)&GPFifo::FastCheckGatherPipe);

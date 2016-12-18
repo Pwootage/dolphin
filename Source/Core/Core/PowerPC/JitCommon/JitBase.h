@@ -55,6 +55,10 @@
 #define JITDISABLE(setting)                                                                        \
   FALLBACK_IF(SConfig::GetInstance().bJITOff || SConfig::GetInstance().setting)
 
+class JitBase;
+
+extern JitBase* jit;
+
 class JitBase : public CPUCoreBase
 {
 protected:
@@ -99,6 +103,7 @@ protected:
     bool generatingTrampoline = false;
     u8* trampolineExceptionHandler;
 
+    bool mustCheckFifo;
     int fifoBytesThisBlock;
 
     PPCAnalyst::BlockStats st;
@@ -125,6 +130,7 @@ public:
   JitOptions jo;
   JitState js;
 
+  static const u8* Dispatch() { return jit->GetBlockCache()->Dispatch(); };
   virtual JitBaseBlockCache* GetBlockCache() = 0;
 
   virtual void Jit(u32 em_address) = 0;
@@ -146,8 +152,6 @@ public:
   JitBlockCache* GetBlockCache() override { return &blocks; }
   bool HandleFault(uintptr_t access_address, SContext* ctx) override;
 };
-
-extern JitBase* jit;
 
 void Jit(u32 em_address);
 
