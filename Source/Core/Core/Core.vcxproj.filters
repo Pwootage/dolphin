@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="ActionReplay">
@@ -189,29 +189,32 @@
     <ClCompile Include="Debugger\PPCDebugInterface.cpp">
       <Filter>Debugger</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPIntArithmetic.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPIntArithmetic.cpp">
       <Filter>DSPCore\Interpreter</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPIntBranch.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPIntBranch.cpp">
       <Filter>DSPCore\Interpreter</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPIntCCUtil.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPIntCCUtil.cpp">
       <Filter>DSPCore\Interpreter</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPInterpreter.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPInterpreter.cpp">
       <Filter>DSPCore\Interpreter</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPIntExtOps.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPIntExtOps.cpp">
       <Filter>DSPCore\Interpreter</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPIntLoadStore.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPIntLoadStore.cpp">
       <Filter>DSPCore\Interpreter</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPIntMisc.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPIntMisc.cpp">
       <Filter>DSPCore\Interpreter</Filter>
     </ClCompile>
-    <ClCompile Include="DSP\DSPIntMultiplier.cpp">
+    <ClCompile Include="DSP\Interpreter\DSPIntMultiplier.cpp">
       <Filter>DSPCore\Interpreter</Filter>
+    </ClCompile>
+    <ClCompile Include="DSP\Jit\DSPEmitter.cpp">
+      <Filter>DSPCore\Jit</Filter>
     </ClCompile>
     <ClCompile Include="DSP\Jit\DSPJitArithmetic.cpp">
       <Filter>DSPCore\Jit</Filter>
@@ -238,9 +241,6 @@
       <Filter>DSPCore\Jit</Filter>
     </ClCompile>
     <ClCompile Include="DSP\Jit\DSPJitUtil.cpp">
-      <Filter>DSPCore\Jit</Filter>
-    </ClCompile>
-    <ClCompile Include="DSP\DSPEmitter.cpp">
       <Filter>DSPCore\Jit</Filter>
     </ClCompile>
     <ClCompile Include="FifoPlayer\FifoAnalyzer.cpp">
@@ -651,9 +651,6 @@
     <ClCompile Include="PowerPC\Profiler.cpp">
       <Filter>PowerPC</Filter>
     </ClCompile>
-    <ClCompile Include="PowerPC\SignatureDB.cpp">
-      <Filter>PowerPC</Filter>
-    </ClCompile>
     <ClCompile Include="PowerPC\JitCommon\JitAsmCommon.cpp">
       <Filter>PowerPC\JitCommon</Filter>
     </ClCompile>
@@ -671,6 +668,12 @@
     </ClCompile>
     <ClCompile Include="PowerPC\Jit64IL\JitIL_Tables.cpp">
       <Filter>PowerPC\JitIL</Filter>
+    </ClCompile>
+    <ClCompile Include="PowerPC\Jit64\FPURegCache.cpp">
+      <Filter>PowerPC\Jit64</Filter>
+    </ClCompile>
+    <ClCompile Include="PowerPC\Jit64\GPRRegCache.cpp">
+      <Filter>PowerPC\Jit64</Filter>
     </ClCompile>
     <ClCompile Include="PowerPC\Jit64\Jit_Branch.cpp">
       <Filter>PowerPC\Jit64</Filter>
@@ -741,13 +744,16 @@
     <ClCompile Include="PowerPC\Jit64Common\BlockCache.cpp">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClCompile>
+    <ClCompile Include="PowerPC\Jit64Common\EmuCodeBlock.cpp">
+      <Filter>PowerPC\Jit64Common</Filter>
+    </ClCompile>
+    <ClCompile Include="PowerPC\Jit64Common\FarCodeCache.cpp">
+      <Filter>PowerPC\Jit64Common</Filter>
+    </ClCompile>
     <ClCompile Include="PowerPC\Jit64Common\Jit64AsmCommon.cpp">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClCompile>
     <ClCompile Include="PowerPC\Jit64Common\Jit64Base.cpp">
-      <Filter>PowerPC\Jit64Common</Filter>
-    </ClCompile>
-    <ClCompile Include="PowerPC\Jit64Common\Jit64Util.cpp">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClCompile>
     <ClCompile Include="PowerPC\Jit64Common\TrampolineCache.cpp">
@@ -759,6 +765,15 @@
     </ClCompile>
     <ClCompile Include="IPC_HLE\WII_IPC_HLE_Device_usb_ven.cpp">
       <Filter>IPC HLE %28IOS/Starlet%29\USB</Filter>
+    </ClCompile>
+    <ClCompile Include="PowerPC\SignatureDB\CSVSignatureDB.cpp">
+      <Filter>PowerPC\SignatureDB</Filter>
+    </ClCompile>
+    <ClCompile Include="PowerPC\SignatureDB\DSYSignatureDB.cpp">
+      <Filter>PowerPC\SignatureDB</Filter>
+    </ClCompile>
+    <ClCompile Include="PowerPC\SignatureDB\SignatureDB.cpp">
+      <Filter>PowerPC\SignatureDB</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -806,22 +821,22 @@
     <ClInclude Include="Debugger\PPCDebugInterface.h">
       <Filter>Debugger</Filter>
     </ClInclude>
-    <ClInclude Include="DSP\DSPIntCCUtil.h">
+    <ClInclude Include="DSP\Interpreter\DSPIntCCUtil.h">
       <Filter>DSPCore\Interpreter</Filter>
     </ClInclude>
-    <ClInclude Include="DSP\DSPInterpreter.h">
+    <ClInclude Include="DSP\Interpreter\DSPInterpreter.h">
       <Filter>DSPCore\Interpreter</Filter>
     </ClInclude>
-    <ClInclude Include="DSP\DSPIntExtOps.h">
+    <ClInclude Include="DSP\Interpreter\DSPIntExtOps.h">
       <Filter>DSPCore\Interpreter</Filter>
     </ClInclude>
-    <ClInclude Include="DSP\DSPIntUtil.h">
+    <ClInclude Include="DSP\Interpreter\DSPIntUtil.h">
       <Filter>DSPCore\Interpreter</Filter>
     </ClInclude>
-    <ClInclude Include="DSP\Jit\DSPJitRegCache.h">
+    <ClInclude Include="DSP\Jit\DSPEmitter.h">
       <Filter>DSPCore\Jit</Filter>
     </ClInclude>
-    <ClInclude Include="DSP\DSPEmitter.h">
+    <ClInclude Include="DSP\Jit\DSPJitRegCache.h">
       <Filter>DSPCore\Jit</Filter>
     </ClInclude>
     <ClInclude Include="FifoPlayer\FifoAnalyzer.h">
@@ -1244,9 +1259,6 @@
     <ClInclude Include="PowerPC\Profiler.h">
       <Filter>PowerPC</Filter>
     </ClInclude>
-    <ClInclude Include="PowerPC\SignatureDB.h">
-      <Filter>PowerPC</Filter>
-    </ClInclude>
     <ClInclude Include="PowerPC\JitCommon\JitAsmCommon.h">
       <Filter>PowerPC\JitCommon</Filter>
     </ClInclude>
@@ -1261,6 +1273,12 @@
     </ClInclude>
     <ClInclude Include="PowerPC\Jit64IL\JitIL_Tables.h">
       <Filter>PowerPC\JitIL</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\Jit64\FPURegCache.h">
+      <Filter>PowerPC\Jit64</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\Jit64\GPRRegCache.h">
+      <Filter>PowerPC\Jit64</Filter>
     </ClInclude>
     <ClInclude Include="PowerPC\Jit64\JitRegCache.h">
       <Filter>PowerPC\Jit64</Filter>
@@ -1284,16 +1302,25 @@
     <ClInclude Include="PowerPC\Jit64Common\BlockCache.h">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClInclude>
+    <ClInclude Include="PowerPC\Jit64Common\EmuCodeBlock.h">
+      <Filter>PowerPC\Jit64Common</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\Jit64Common\FarCodeCache.h">
+      <Filter>PowerPC\Jit64Common</Filter>
+    </ClInclude>
     <ClInclude Include="PowerPC\Jit64Common\Jit64AsmCommon.h">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClInclude>
     <ClInclude Include="PowerPC\Jit64Common\Jit64Base.h">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClInclude>
-    <ClInclude Include="PowerPC\Jit64Common\Jit64Util.h">
+    <ClInclude Include="PowerPC\Jit64Common\Jit64PowerPCState.h">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClInclude>
     <ClInclude Include="PowerPC\Jit64Common\TrampolineCache.h">
+      <Filter>PowerPC\Jit64Common</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\Jit64Common\TrampolineInfo.h">
       <Filter>PowerPC\Jit64Common</Filter>
     </ClInclude>
     <ClInclude Include="Analytics.h" />
@@ -1302,6 +1329,15 @@
     </ClInclude>
     <ClInclude Include="IPC_HLE\WII_IPC_HLE_Device_usb_ven.h">
       <Filter>IPC HLE %28IOS/Starlet%29\USB</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\SignatureDB\CSVSignatureDB.h">
+      <Filter>PowerPC\SignatureDB</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\SignatureDB\DSYSignatureDB.h">
+      <Filter>PowerPC\SignatureDB</Filter>
+    </ClInclude>
+    <ClInclude Include="PowerPC\SignatureDB\SignatureDB.h">
+      <Filter>PowerPC\SignatureDB</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

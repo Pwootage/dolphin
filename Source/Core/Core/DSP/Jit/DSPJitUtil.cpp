@@ -2,12 +2,20 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include "Core/DSP/DSPEmitter.h"
+#include "Common/CommonTypes.h"
+
+#include "Core/DSP/DSPCore.h"
 #include "Core/DSP/DSPHWInterface.h"
-#include "Core/DSP/DSPMemoryMap.h"
+#include "Core/DSP/Jit/DSPEmitter.h"
 
 using namespace Gen;
 
+namespace DSP
+{
+namespace JIT
+{
+namespace x86
+{
 // clobbers:
 // EAX = (s8)g_dsp.reg_stack_ptr[stack_reg]
 // expects:
@@ -804,3 +812,7 @@ void DSPEmitter::get_ax_h(int _reg, X64Reg axh)
   //	return (s16)g_dsp.r[DSP_REG_AXH0 + _reg];
   gpr.ReadReg(_reg + DSP_REG_AXH0, axh, SIGN);
 }
+
+}  // namespace x86
+}  // namespace JIT
+}  // namespace DSP

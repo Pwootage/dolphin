@@ -3,8 +3,11 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "Core/DSP/DSPAssembler.h"
+
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -13,11 +16,11 @@
 #include "Common/CommonTypes.h"
 #include "Common/FileUtil.h"
 
-#include "Core/DSP/DSPAssembler.h"
 #include "Core/DSP/DSPDisassembler.h"
-#include "Core/DSP/DSPInterpreter.h"
 #include "Core/DSP/DSPTables.h"
 
+namespace DSP
+{
 static const char* err_string[] = {"",
                                    "Unknown Error",
                                    "Unknown opcode",
@@ -1030,3 +1033,4 @@ bool DSPAssembler::AssembleFile(const char* fname, int pass)
 
   return !failed;
 }
+}  // namespace DSP

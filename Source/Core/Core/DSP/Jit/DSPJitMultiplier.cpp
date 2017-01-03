@@ -6,12 +6,19 @@
 
 // Multiplier and product register control
 
-#include "Core/DSP/DSPAnalyzer.h"
-#include "Core/DSP/DSPEmitter.h"
-#include "Core/DSP/DSPIntUtil.h"
+#include "Common/CommonTypes.h"
+
+#include "Core/DSP/DSPCore.h"
+#include "Core/DSP/Jit/DSPEmitter.h"
 
 using namespace Gen;
 
+namespace DSP
+{
+namespace JIT
+{
+namespace x86
+{
 // Returns s64 in RAX
 // In: RCX = s16 a, RAX = s16 b
 void DSPEmitter::multiply()
@@ -769,3 +776,7 @@ void DSPEmitter::msub(const UDSPInstruction opc)
   //	dsp_set_long_prod(prod);
   set_long_prod();
 }
+
+}  // namespace x86
+}  // namespace JIT
+}  // namespace DSP

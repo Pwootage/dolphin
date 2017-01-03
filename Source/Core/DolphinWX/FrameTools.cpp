@@ -332,9 +332,10 @@ void CFrame::DoOpen(bool Boot)
 
   wxString path = wxFileSelector(
       _("Select the file to load"), wxEmptyString, wxEmptyString, wxEmptyString,
-      _("All GC/Wii files (elf, dol, gcm, iso, wbfs, ciso, gcz, wad)") +
-          wxString::Format("|*.elf;*.dol;*.gcm;*.iso;*.wbfs;*.ciso;*.gcz;*.wad;*.dff;*.tmd|%s",
-                           wxGetTranslation(wxALL_FILES)),
+      _("All GC/Wii files (elf, dol, gcm, iso, tgc, wbfs, ciso, gcz, wad)") +
+          wxString::Format(
+              "|*.elf;*.dol;*.gcm;*.iso;*.tgc;*.wbfs;*.ciso;*.gcz;*.wad;*.dff;*.tmd|%s",
+              wxGetTranslation(wxALL_FILES)),
       wxFD_OPEN | wxFD_FILE_MUST_EXIST, this);
 
   if (path.IsEmpty())
@@ -733,7 +734,8 @@ void CFrame::StartGame(const std::string& filename)
 
 void CFrame::OnBootDrive(wxCommandEvent& event)
 {
-  BootGame(drives[event.GetId() - IDM_DRIVE1]);
+  const auto* menu = static_cast<wxMenu*>(event.GetEventObject());
+  BootGame(WxStrToStr(menu->GetLabelText(event.GetId())));
 }
 
 void CFrame::OnRefresh(wxCommandEvent& WXUNUSED(event))
@@ -822,20 +824,6 @@ void CFrame::DoStop()
       }
     }
 
-    const auto& stm = WII_IPC_HLE_Interface::GetDeviceByName("/dev/stm/eventhook");
-    if (!m_tried_graceful_shutdown && stm &&
-        std::static_pointer_cast<CWII_IPC_HLE_Device_stm_eventhook>(stm)->HasHookInstalled())
-    {
-      Core::DisplayMessage("Shutting down", 30000);
-      // Unpause because gracefully shutting down needs the game to actually request a shutdown
-      if (Core::GetState() == Core::CORE_PAUSE)
-        DoPause();
-      ProcessorInterface::PowerButton_Tap();
-      m_confirmStop = false;
-      m_tried_graceful_shutdown = true;
-      return;
-    }
-
     if (UseDebugger && g_pCodeWindow)
     {
       if (g_pCodeWindow->HasPanel<CWatchWindow>())
@@ -860,9 +848,29 @@ void CFrame::DoStop()
     if (NetPlayDialog::GetNetPlayClient())
       NetPlayDialog::GetNetPlayClient()->Stop();
 
+    if (!m_tried_graceful_shutdown && TriggerSTMPowerEvent())
+    {
+      m_tried_graceful_shutdown = true;
+      return;
+    }
     Core::Stop();
     UpdateGUI();
   }
+}
+
+bool CFrame::TriggerSTMPowerEvent()
+{
+  const auto stm = WII_IPC_HLE_Interface::GetDeviceByName("/dev/stm/eventhook");
+  if (!stm || !std::static_pointer_cast<CWII_IPC_HLE_Device_stm_eventhook>(stm)->HasHookInstalled())
+    return false;
+
+  Core::DisplayMessage("Shutting down", 30000);
+  // Unpause because gracefully shutting down needs the game to actually request a shutdown
+  if (Core::GetState() == Core::CORE_PAUSE)
+    DoPause();
+  ProcessorInterface::PowerButton_Tap();
+  m_confirmStop = false;
+  return true;
 }
 
 void CFrame::OnStopped()

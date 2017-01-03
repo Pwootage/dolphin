@@ -2,13 +2,21 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include "Core/DSP/DSPEmitter.h"
-#include "Core/DSP/DSPIntUtil.h"
-#include "Core/DSP/DSPInterpreter.h"
+#include "Common/CommonTypes.h"
+
+#include "Core/DSP/DSPCore.h"
 #include "Core/DSP/DSPMemoryMap.h"
+#include "Core/DSP/Interpreter/DSPInterpreter.h"
+#include "Core/DSP/Jit/DSPEmitter.h"
 
 using namespace Gen;
 
+namespace DSP
+{
+namespace JIT
+{
+namespace x86
+{
 // MRR $D, $S
 // 0001 11dd ddds ssss
 // Move value from register $S to register $D.
@@ -189,3 +197,7 @@ void DSPEmitter::srbith(const UDSPInstruction opc)
     break;
   }
 }
+
+}  // namespace x86
+}  // namespace JIT
+}  // namespace DSP

@@ -4,27 +4,33 @@
 
 #pragma once
 
+#include <cstddef>
 #include <list>
+#include <vector>
 
+#include "Common/CommonTypes.h"
 #include "Common/x64ABI.h"
 #include "Common/x64Emitter.h"
 
 #include "Core/DSP/DSPCommon.h"
 #include "Core/DSP/Jit/DSPJitRegCache.h"
 
-#define COMPILED_CODE_SIZE 2097152
-#define MAX_BLOCKS 0x10000
-
-typedef u32 (*DSPCompiledCode)();
-typedef const u8* Block;
-
+namespace DSP
+{
+namespace JIT
+{
+namespace x86
+{
 class DSPEmitter : public Gen::X64CodeBlock
 {
 public:
+  using DSPCompiledCode = u32 (*)();
+  using Block = const u8*;
+
+  static constexpr size_t MAX_BLOCKS = 0x10000;
+
   DSPEmitter();
   ~DSPEmitter();
-
-  Block m_compiledCode;
 
   void EmitInstruction(UDSPInstruction inst);
   void ClearIRAM();
@@ -34,7 +40,7 @@ public:
   Block CompileStub();
   void Compile(u16 start_addr);
 
-  bool FlagsNeeded();
+  bool FlagsNeeded() const;
 
   void FallBackToInterpreter(UDSPInstruction inst);
 
@@ -245,20 +251,20 @@ public:
   const u8* returnDispatcher;
   u16 compilePC;
   u16 startAddr;
-  Block* blockLinks;
-  u16* blockSize;
+  std::vector<Block> blockLinks;
+  std::vector<u16> blockSize;
   std::list<u16> unresolvedJumps[MAX_BLOCKS];
 
-  DSPJitRegCache gpr;
+  DSPJitRegCache gpr{*this};
 
 private:
-  DSPCompiledCode* blocks;
+  std::vector<DSPCompiledCode> blocks;
   Block blockLinkEntry;
   u16 compileSR;
 
   // The index of the last stored ext value (compile time).
-  int storeIndex;
-  int storeIndex2;
+  int storeIndex = -1;
+  int storeIndex2 = -1;
 
   // Counts down.
   // int cycles;
@@ -281,3 +287,7 @@ private:
   void get_ax_h(int _reg, Gen::X64Reg acc = Gen::EAX);
   void get_long_acc(int _reg, Gen::X64Reg acc = Gen::EAX);
 };
+
+}  // namespace x86
+}  // namespace JIT
+}  // namespace DSP

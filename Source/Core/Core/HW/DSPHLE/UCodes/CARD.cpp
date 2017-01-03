@@ -9,15 +9,23 @@
 #include "Core/HW/DSPHLE/DSPHLE.h"
 #include "Core/HW/DSPHLE/UCodes/UCodes.h"
 
+namespace DSP
+{
+namespace HLE
+{
 CARDUCode::CARDUCode(DSPHLE* dsphle, u32 crc) : UCodeInterface(dsphle, crc)
 {
   INFO_LOG(DSPHLE, "CARDUCode - initialized");
-  m_mail_handler.PushMail(DSP_INIT);
 }
 
 CARDUCode::~CARDUCode()
 {
   m_mail_handler.Clear();
+}
+
+void CARDUCode::Initialize()
+{
+  m_mail_handler.PushMail(DSP_INIT);
 }
 
 void CARDUCode::Update()
@@ -43,3 +51,5 @@ void CARDUCode::HandleMail(u32 mail)
   m_mail_handler.PushMail(DSP_DONE);
   m_dsphle->SetUCode(UCODE_ROM);
 }
+}  // namespace HLE
+}  // namespace DSP

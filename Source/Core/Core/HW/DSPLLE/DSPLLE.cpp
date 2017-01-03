@@ -2,16 +2,18 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "Core/HW/DSPLLE/DSPLLE.h"
+
 #include <mutex>
 #include <string>
 #include <thread>
 
-#include "Common/Atomic.h"
 #include "Common/ChunkFile.h"
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
 #include "Common/Event.h"
 #include "Common/Logging/Log.h"
+#include "Common/MemoryUtil.h"
 #include "Common/Thread.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
@@ -19,15 +21,16 @@
 #include "Core/DSP/DSPCore.h"
 #include "Core/DSP/DSPHWInterface.h"
 #include "Core/DSP/DSPHost.h"
-#include "Core/DSP/DSPInterpreter.h"
 #include "Core/DSP/DSPTables.h"
-#include "Core/HW/DSPLLE/DSPLLE.h"
+#include "Core/DSP/Interpreter/DSPInterpreter.h"
 #include "Core/HW/DSPLLE/DSPLLEGlobals.h"
 #include "Core/HW/Memmap.h"
 #include "Core/Host.h"
-#include "Core/Movie.h"
-#include "Core/NetPlayProto.h"
 
+namespace DSP
+{
+namespace LLE
+{
 static Common::Event dspEvent;
 static Common::Event ppcEvent;
 static bool requestDisableThread;
@@ -68,7 +71,7 @@ void DSPLLE::DoState(PointerWrap& p)
   p.DoArray(g_dsp.iram, DSP_IRAM_SIZE);
   Common::WriteProtectMemory(g_dsp.iram, DSP_IRAM_BYTE_SIZE, false);
   if (p.GetMode() == PointerWrap::MODE_READ)
-    DSPHost::CodeLoaded((const u8*)g_dsp.iram, DSP_IRAM_BYTE_SIZE);
+    Host::CodeLoaded((const u8*)g_dsp.iram, DSP_IRAM_BYTE_SIZE);
   p.DoArray(g_dsp.dram, DSP_DRAM_SIZE);
   p.Do(g_cycles_left);
   p.Do(g_init_hax);
@@ -92,7 +95,7 @@ void DSPLLE::DSPThread(DSPLLE* dsp_lle)
       }
       else
       {
-        DSPInterpreter::RunCyclesThread(cycles);
+        DSP::Interpreter::RunCyclesThread(cycles);
       }
       dsp_lle->m_cycle_count.store(0);
     }
@@ -204,7 +207,7 @@ void DSPLLE::Shutdown()
 
 u16 DSPLLE::DSP_WriteControlRegister(u16 _uFlag)
 {
-  DSPInterpreter::WriteCR(_uFlag);
+  DSP::Interpreter::WriteCR(_uFlag);
 
   if (_uFlag & 2)
   {
@@ -223,12 +226,12 @@ u16 DSPLLE::DSP_WriteControlRegister(u16 _uFlag)
     }
   }
 
-  return DSPInterpreter::ReadCR();
+  return DSP::Interpreter::ReadCR();
 }
 
 u16 DSPLLE::DSP_ReadControlRegister()
 {
-  return DSPInterpreter::ReadCR();
+  return DSP::Interpreter::ReadCR();
 }
 
 u16 DSPLLE::DSP_ReadMailBoxHigh(bool _CPUMailbox)
@@ -340,3 +343,5 @@ void DSPLLE::PauseAndLock(bool doLock, bool unpauseOnUnlock)
   else
     m_csDSPThreadActive.unlock();
 }
+}  // namespace LLE
+}  // namespace DSP

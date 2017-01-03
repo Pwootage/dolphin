@@ -4,11 +4,17 @@
 
 // Additional copyrights go to Duddie and Tratax (c) 2004
 
-#include "Core/DSP/DSPEmitter.h"
-#include "Core/DSP/DSPIntUtil.h"  // Helper functions
+#include "Core/DSP/DSPCore.h"
+#include "Core/DSP/Jit/DSPEmitter.h"
 
 using namespace Gen;
 
+namespace DSP
+{
+namespace JIT
+{
+namespace x86
+{
 // In: RAX: s64 _Value
 // Clobbers RDX
 void DSPEmitter::Update_SR_Register(Gen::X64Reg val)
@@ -164,3 +170,7 @@ void DSPEmitter::Update_SR_Register16_OverS32(Gen::X64Reg val)
   // AND(32, R(val), Imm32(0xc0000000));
   Update_SR_Register16(val);
 }
+
+}  // namespace x86
+}  // namespace JIT
+}  // namespace DSP

@@ -15,18 +15,26 @@
 #define AX_GC
 #include "Core/HW/DSPHLE/UCodes/AXVoice.h"
 
+namespace DSP
+{
+namespace HLE
+{
 AXUCode::AXUCode(DSPHLE* dsphle, u32 crc) : UCodeInterface(dsphle, crc), m_cmdlist_size(0)
 {
   INFO_LOG(DSPHLE, "Instantiating AXUCode: crc=%08x", crc);
-  m_mail_handler.PushMail(DSP_INIT);
-  DSP::GenerateDSPInterruptFromDSPEmu(DSP::INT_DSP);
-
-  LoadResamplingCoefficients();
 }
 
 AXUCode::~AXUCode()
 {
   m_mail_handler.Clear();
+}
+
+void AXUCode::Initialize()
+{
+  m_mail_handler.PushMail(DSP_INIT);
+  DSP::GenerateDSPInterruptFromDSPEmu(DSP::INT_DSP);
+
+  LoadResamplingCoefficients();
 }
 
 void AXUCode::LoadResamplingCoefficients()
@@ -686,3 +694,5 @@ void AXUCode::DoState(PointerWrap& p)
   DoStateShared(p);
   DoAXState(p);
 }
+}  // namespace HLE
+}  // namespace DSP

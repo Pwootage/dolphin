@@ -6,11 +6,12 @@
 
 // HELPER FUNCTIONS
 
-#include "Core/DSP/DSPIntCCUtil.h"
+#include "Core/DSP/Interpreter/DSPIntCCUtil.h"
 #include "Core/DSP/DSPCore.h"
-#include "Core/DSP/DSPInterpreter.h"
 
-namespace DSPInterpreter
+namespace DSP
+{
+namespace Interpreter
 {
 void Update_SR_Register64(s64 _Value, bool carry, bool overflow)
 {
@@ -182,4 +183,5 @@ bool CheckCondition(u8 _Condition)
   }
 }
 
-}  // namespace
+}  // namespace Interpreter
+}  // namespace DSP

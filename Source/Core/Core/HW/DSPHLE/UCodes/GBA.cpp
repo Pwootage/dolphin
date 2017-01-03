@@ -9,6 +9,10 @@
 #include "Core/HW/DSP.h"
 #include "Core/HW/DSPHLE/UCodes/UCodes.h"
 
+namespace DSP
+{
+namespace HLE
+{
 void ProcessGBACrypto(u32 address)
 {
   struct sec_params_t
@@ -84,12 +88,16 @@ void ProcessGBACrypto(u32 address)
 
 GBAUCode::GBAUCode(DSPHLE* dsphle, u32 crc) : UCodeInterface(dsphle, crc)
 {
-  m_mail_handler.PushMail(DSP_INIT);
 }
 
 GBAUCode::~GBAUCode()
 {
   m_mail_handler.Clear();
+}
+
+void GBAUCode::Initialize()
+{
+  m_mail_handler.PushMail(DSP_INIT);
 }
 
 void GBAUCode::Update()
@@ -143,3 +151,5 @@ void GBAUCode::HandleMail(u32 mail)
     WARN_LOG(DSPHLE, "GBAUCode - unknown command: %08x", mail);
   }
 }
+}  // namespace HLE
+}  // namespace DSP

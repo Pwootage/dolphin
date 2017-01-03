@@ -2,9 +2,11 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include "DSPIntExtOps.h"
-#include "Core/DSP/DSPIntUtil.h"
+#include "Core/DSP/Interpreter/DSPIntExtOps.h"
+
 #include "Core/DSP/DSPMemoryMap.h"
+#include "Core/DSP/DSPTables.h"
+#include "Core/DSP/Interpreter/DSPIntUtil.h"
 
 // not needed for game ucodes (it slows down interpreter/dspjit32 + easier to compare int VS
 // dspjit64 without it)
@@ -20,14 +22,15 @@
 // registers will wrap in odd ways, dictated by the corresponding wrapping
 // register, WR0-3.
 
-// Needs comments.
+namespace DSP
+{
 inline static void writeToBackLog(int i, int idx, u16 value)
 {
   writeBackLog[i] = value;
   writeBackLogIdx[i] = idx;
 }
 
-namespace DSPInterpreter
+namespace Interpreter
 {
 namespace Ext
 {
@@ -494,8 +497,8 @@ void nop(const UDSPInstruction opc)
 {
 }
 
-}  // end namespace ext
-}  // end namespace DSPInterpeter
+}  // namespace Ext
+}  // namespace Interpeter
 
 // The ext ops are calculated in parallel with the actual op. That means that
 // both the main op and the ext op see the same register state as input. The
@@ -511,11 +514,12 @@ void applyWriteBackLog()
   // infinitive loops
   for (int i = 0; writeBackLogIdx[i] != -1; i++)
   {
+    u16 value = writeBackLog[i];
 #ifdef PRECISE_BACKLOG
-    dsp_op_write_reg(writeBackLogIdx[i], dsp_op_read_reg(writeBackLogIdx[i]) | writeBackLog[i]);
-#else
-    dsp_op_write_reg(writeBackLogIdx[i], writeBackLog[i]);
+    value |= Interpreter::dsp_op_read_reg(writeBackLogIdx[i]);
 #endif
+    Interpreter::dsp_op_write_reg(writeBackLogIdx[i], value);
+
     // Clear back log
     writeBackLogIdx[i] = -1;
   }
@@ -535,7 +539,7 @@ void zeroWriteBackLog()
   // infinitive loops
   for (int i = 0; writeBackLogIdx[i] != -1; i++)
   {
-    dsp_op_write_reg(writeBackLogIdx[i], 0);
+    Interpreter::dsp_op_write_reg(writeBackLogIdx[i], 0);
   }
 #endif
 }
@@ -557,7 +561,8 @@ void zeroWriteBackLogPreserveAcc(u8 acc)
          (writeBackLogIdx[i] == DSP_REG_ACH1)))
       continue;
 
-    dsp_op_write_reg(writeBackLogIdx[i], 0);
+    Interpreter::dsp_op_write_reg(writeBackLogIdx[i], 0);
   }
 #endif
 }
+}  // namespace DSP

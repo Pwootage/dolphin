@@ -8,11 +8,16 @@
 #include <mutex>
 #include <thread>
 
+#include "Common/CommonTypes.h"
 #include "Common/Flag.h"
 #include "Core/DSPEmulator.h"
 
 class PointerWrap;
 
+namespace DSP
+{
+namespace LLE
+{
 class DSPLLE : public DSPEmulator
 {
 public:
@@ -43,3 +48,5 @@ private:
   Common::Flag m_bIsRunning;
   std::atomic<u32> m_cycle_count{};
 };
+}  // namespace LLE
+}  // namespace DSP

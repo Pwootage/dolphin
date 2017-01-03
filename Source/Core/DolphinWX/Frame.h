@@ -90,6 +90,7 @@ public:
 
   void DoPause();
   void DoStop();
+  bool TriggerSTMPowerEvent();
   void OnStopped();
   void DoRecordingSave();
   void UpdateGUI();
@@ -161,8 +162,6 @@ private:
   bool m_confirmStop = false;
   bool m_tried_graceful_shutdown = false;
   int m_saveSlot = 1;
-
-  std::vector<std::string> drives;
 
   enum
   {

@@ -8,6 +8,10 @@
 #include "Common/MathUtil.h"
 #include "Core/HW/DSPHLE/UCodes/UCodes.h"
 
+namespace DSP
+{
+namespace HLE
+{
 class ZeldaAudioRenderer
 {
 public:
@@ -188,6 +192,7 @@ public:
   ZeldaUCode(DSPHLE* dsphle, u32 crc);
   virtual ~ZeldaUCode();
 
+  void Initialize() override;
   void HandleMail(u32 mail) override;
   void Update() override;
 
@@ -296,3 +301,5 @@ private:
   // Main object handling audio rendering logic and state.
   ZeldaAudioRenderer m_renderer;
 };
+}  // namespace HLE
+}  // namespace DSP

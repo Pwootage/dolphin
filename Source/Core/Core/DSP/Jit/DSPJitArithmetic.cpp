@@ -4,14 +4,20 @@
 
 // Additional copyrights go to Duddie and Tratax (c) 2004
 
-#include "Core/DSP/DSPAnalyzer.h"
-#include "Core/DSP/DSPEmitter.h"
-#include "Core/DSP/DSPIntCCUtil.h"
-#include "Core/DSP/DSPIntUtil.h"
+#include "Common/CommonTypes.h"
+
+#include "Core/DSP/DSPCore.h"
 #include "Core/DSP/DSPMemoryMap.h"
+#include "Core/DSP/Jit/DSPEmitter.h"
 
 using namespace Gen;
 
+namespace DSP
+{
+namespace JIT
+{
+namespace x86
+{
 // CLR $acR
 // 1000 r001 xxxx xxxx
 // Clears accumulator $acR
@@ -1672,6 +1678,6 @@ void DSPEmitter::asrnr(const UDSPInstruction opc)
   }
 }
 
-//}  // namespace
-
-//
+}  // namespace x86
+}  // namespace JIT
+}  // namespace DSP

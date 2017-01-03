@@ -27,10 +27,10 @@ public:
 
     Texture2D* GetTexture() const { return m_texture.get(); }
     VkFramebuffer GetFramebuffer() const { return m_framebuffer; }
-    void Load(unsigned int width, unsigned int height, unsigned int expanded_width,
-              unsigned int level) override;
-    void FromRenderTarget(u8* dst, PEControl::PixelFormat src_format, const EFBRectangle& src_rect,
-                          bool scale_by_half, unsigned int cbufid, const float* colmat) override;
+    void Load(const u8* buffer, unsigned int width, unsigned int height,
+              unsigned int expanded_width, unsigned int level) override;
+    void FromRenderTarget(bool is_depth_copy, const EFBRectangle& src_rect, bool scale_by_half,
+                          unsigned int cbufid, const float* colmat) override;
     void CopyRectangleFromTexture(const TCacheEntryBase* source,
                                   const MathUtil::Rectangle<int>& src_rect,
                                   const MathUtil::Rectangle<int>& dst_rect) override;
@@ -60,7 +60,7 @@ public:
                       TlutFormat format) override;
 
   void CopyEFB(u8* dst, u32 format, u32 native_width, u32 bytes_per_row, u32 num_blocks_y,
-               u32 memory_stride, PEControl::PixelFormat src_format, const EFBRectangle& src_rect,
+               u32 memory_stride, bool is_depth_copy, const EFBRectangle& src_rect,
                bool is_intensity, bool scale_by_half) override;
 
   void CopyRectangleFromTexture(TCacheEntry* dst_texture, const MathUtil::Rectangle<int>& dst_rect,
