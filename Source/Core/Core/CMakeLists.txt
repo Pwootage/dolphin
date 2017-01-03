@@ -250,6 +250,7 @@ set(LIBS
 	videoogl
 	videosoftware
 	z
+	bsoncxx
 	)
 
 if(LIBUSB_FOUND)
