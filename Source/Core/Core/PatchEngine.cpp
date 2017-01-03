@@ -255,7 +255,6 @@ bool ApplyFramePatches()
 
   // Run prime memory dump
   PrimeMemoryDumping::DumpMemoryForFrame();
-  MSR = oldMSR;
 
   return true;
 }
