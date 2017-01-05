@@ -32,7 +32,7 @@
 #include "DiscIO/Volume.h"
 #include "DiscIO/VolumeCreator.h"
 
-#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
+#include "Core/PrimeMemoryDumpingDolphin/PrimeMemoryDumping.h"
 
 static const double PI = 3.14159265358979323846264338328;
 

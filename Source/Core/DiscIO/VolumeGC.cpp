@@ -20,7 +20,7 @@
 #include "DiscIO/Filesystem.h"
 #include "DiscIO/Volume.h"
 #include "DiscIO/VolumeGC.h"
-#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
+#include "Core/PrimeMemoryDumpingDolphin/PrimeMemoryDumping.h"
 
 namespace DiscIO
 {

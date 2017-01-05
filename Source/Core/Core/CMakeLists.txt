@@ -1,3 +1,5 @@
+add_subdirectory(PrimeMemoryDumping)
+
 set(SRCS	ActionReplay.cpp
 			Analytics.cpp
 			ARDecrypt.cpp
@@ -16,7 +18,7 @@ set(SRCS	ActionReplay.cpp
 			NetPlayServer.cpp
 			PatchEngine.cpp
 			State.cpp
-			PrimeMemoryDumping/PrimeMemoryDumping.cpp
+			PrimeMemoryDumpingDolphin/PrimeMemoryDumping.cpp
 			Boot/Boot_BS2Emu.cpp
 			Boot/Boot.cpp
 			Boot/Boot_DOL.cpp
@@ -250,7 +252,7 @@ set(LIBS
 	videoogl
 	videosoftware
 	z
-	bsoncxx
+	primememorydumping
 	)
 
 if(LIBUSB_FOUND)

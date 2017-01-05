@@ -27,7 +27,7 @@
 #include "Common/StringUtil.h"
 
 #include "Core/ActionReplay.h"
-#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
+#include "Core/PrimeMemoryDumpingDolphin/PrimeMemoryDumping.h"
 #include "Core/ConfigManager.h"
 #include "Core/GeckoCode.h"
 #include "Core/GeckoCodeConfig.h"

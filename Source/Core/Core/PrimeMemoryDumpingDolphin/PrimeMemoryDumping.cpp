@@ -12,7 +12,7 @@
 #include "Core/PowerPC/PowerPC.h"
 #include "SFML/Network.hpp"
 #include "Common/MsgHandler.h"
-#include "Core/PrimeMemoryDumping/PrimeMemoryDumping.h"
+#include "PrimeMemoryDumping.h"
 
 using namespace std;
 
