@@ -247,14 +247,14 @@ bool ApplyFramePatches()
     return false;
   }
 
+  // Run prime memory dump
+  PrimeMemoryDumping::DumpMemoryForFrame();
+
   ApplyPatches(onFrame);
 
   // Run the Gecko code handler
   Gecko::RunCodeHandler();
   ActionReplay::RunAllActive();
-
-  // Run prime memory dump
-  PrimeMemoryDumping::DumpMemoryForFrame();
 
   return true;
 }

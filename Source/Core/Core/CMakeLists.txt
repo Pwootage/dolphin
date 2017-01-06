@@ -1,4 +1,6 @@
 add_subdirectory(PrimeMemoryDumping)
+include_directories(PrimeMemoryDumping/common)
+include_directories(PrimeMemoryDumping/prime1)
 
 set(SRCS	ActionReplay.cpp
 			Analytics.cpp
@@ -19,6 +21,7 @@ set(SRCS	ActionReplay.cpp
 			PatchEngine.cpp
 			State.cpp
 			PrimeMemoryDumpingDolphin/PrimeMemoryDumping.cpp
+			PrimeMemoryDumpingDolphin/GameMemory.cpp
 			Boot/Boot_BS2Emu.cpp
 			Boot/Boot.cpp
 			Boot/Boot_DOL.cpp

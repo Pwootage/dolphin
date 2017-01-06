@@ -1,5 +1,5 @@
 set(MEM_SRCS
-        common/game_ptr.cpp
+        common/game_value.cpp
         prime1/CGameAllocator.cpp
         )
 
