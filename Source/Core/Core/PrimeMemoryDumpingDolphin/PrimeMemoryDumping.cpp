@@ -14,41 +14,59 @@
 #include "SFML/Network.hpp"
 #include "Common/MsgHandler.h"
 #include "PrimeMemoryDumping.h"
-#include "CGameAllocator.h"
+#include "Prime1JsonDumper.h"
+#include "json.hpp"
 
 using namespace std;
+using namespace nlohmann;
 
 namespace PrimeMemoryDumping {
     static constexpr u8 PACKET_TYPE_GAME_DATA = 1;
     static constexpr u8 PACKET_TYPE_RAW_DISC_READ = 2;
-
-
-    static bool initialized = false;
-    static sf::UdpSocket socket;
-    static sf::IpAddress target = "192.168.1.50";
+    
+    static sf::TcpListener serverSocket;
+    static thread acceptThread;
+    static bool initalized = false;
+    static mutex clientListMutex;
+    static vector<unique_ptr<sf::TcpSocket>> clients;
     static constexpr u16 port = 43673;
     static constexpr int INVENTORY_SIZE = 0x29;
-
-    void Init() {
-      initialized = true;
+    
+    void NetworkThread() {
+      if (serverSocket.listen(port) == sf::Socket::Status::Done) {
+        NOTICE_LOG(ACTIONREPLAY, "Listening on port %u", port);
+      } else {
+        NOTICE_LOG(ACTIONREPLAY, "Failed to listen on port %u", port);
+        return;
+      }
+      
+      while (true) {
+        auto sock = unique_ptr<sf::TcpSocket>(new sf::TcpSocket());
+        sf::Socket::Status res = serverSocket.accept(*sock);
+        if (res == sf::Socket::Status::Done) {
+          std::lock_guard<std::mutex> lock(clientListMutex);
+          clients.push_back(move(sock));
+        } else if (res == sf::Socket::Status::Error) {
+          break;
+        }
+      }
     }
 
     void DumpMemoryForFrame() {
-      if (!initialized) {
-        Init();
+      if (!initalized) {
+        acceptThread = thread(NetworkThread);
+        initalized = true;
       }
 
       u32 gameID = PowerPC::HostRead_U32(0x80000000);
       u16 makerID = PowerPC::HostRead_U16(0x80000004);
 
+      json json_message;
       //Prime 1
       if (gameID == 0x474D3845 && makerID == 0x3031) {
-        CGameAllocator allocator(0x4BFD64);
-        DEBUG_LOG(
-            ACTIONREPLAY,
-            "Allocator: %x",
-            allocator.first().read().size().read());
-//        uint32_t size = allocator.heapSize().read();
+        json_message["heap"] = Prime1JsonDumper::parseHeap();
+
+        //        uint32_t size = allocator.heapSize().read();
 //        printf("size: %u", size);
 //        u32 ptr = PowerPC::HostRead_U32(0x004578CC) - 0x80000000;
 //
@@ -74,6 +92,23 @@ namespace PrimeMemoryDumping {
 //        if (socket.send(packet, target, port) != sf::Socket::Done) {
 //          PanicAlertT("Failed to dump data to socket!");
 //        }
+
+
+      }
+
+      sf::Packet packet;
+      string json_string = json_message.dump();
+      uint32_t packetLen = static_cast<uint32_t>(json_string.size());
+      packet.append(json_string.c_str(), packetLen * sizeof(std::string::value_type));
+
+      std::lock_guard<std::mutex> lock(clientListMutex);
+      for (auto client = clients.begin(); client != clients.end();) {
+        if ((*client)->send(packet) != sf::Socket::Status::Done) {
+          ERROR_LOG(ACTIONREPLAY, "Client didn't send, removing");
+          client = clients.erase(client);
+        } else {
+          client++;
+        }
       }
     }
 

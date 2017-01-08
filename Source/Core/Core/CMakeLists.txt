@@ -2,6 +2,8 @@ add_subdirectory(PrimeMemoryDumping)
 include_directories(PrimeMemoryDumping/common)
 include_directories(PrimeMemoryDumping/prime1)
 
+add_definitions(-DJSON_NOEXCEPTION=true)
+
 set(SRCS	ActionReplay.cpp
 			Analytics.cpp
 			ARDecrypt.cpp

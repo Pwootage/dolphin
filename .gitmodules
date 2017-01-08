@@ -2,3 +2,6 @@
 	path = Externals/Qt
 	url = https://github.com/dolphin-emu/ext-win-qt.git
 	branch = master
+[submodule "Source/Core/Core/PrimeMemoryDumping"]
+	path = Source/Core/Core/PrimeMemoryDumping
+	url = https://github.com/Pwootage/PrimeMemoryDumping.git

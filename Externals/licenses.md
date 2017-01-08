@@ -70,5 +70,3 @@ Dolphin includes or links code of the following third-party software projects:
    [2-clause BSD](https://github.com/Cyan4973/xxHash/blob/master/LICENSE)
 - [zlib](http://www.zlib.net/):
    [zlib license](http://www.zlib.net/zlib_license.html)
-- [bson-cxx](https://github.com/dwight/bson-cxx):
-   [Apache 2.0](https://github.com/dwight/bson-cxx/blob/master/APACHE-2.0.txt)

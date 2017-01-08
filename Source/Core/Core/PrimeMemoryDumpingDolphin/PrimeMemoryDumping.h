@@ -10,5 +10,6 @@
 namespace PrimeMemoryDumping {
     void Init();
     void DumpMemoryForFrame();
+    void NetworkThread();
     void LogRead(u64 offset, u64 len);
 };
