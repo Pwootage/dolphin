@@ -24,6 +24,7 @@ set(SRCS	ActionReplay.cpp
 			State.cpp
 			PrimeMemoryDumpingDolphin/PrimeMemoryDumping.cpp
 			PrimeMemoryDumpingDolphin/GameMemory.cpp
+			PrimeMemoryDumping/prime1/Prime1JsonDumper.cpp
 			Boot/Boot_BS2Emu.cpp
 			Boot/Boot.cpp
 			Boot/Boot_DOL.cpp
@@ -257,7 +258,6 @@ set(LIBS
 	videoogl
 	videosoftware
 	z
-	primememorydumping
 	)
 
 if(LIBUSB_FOUND)

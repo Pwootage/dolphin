@@ -33,12 +33,11 @@ namespace PrimeMemoryDumping {
     static constexpr int INVENTORY_SIZE = 0x29;
     
     void NetworkThread() {
-      if (serverSocket.listen(port) == sf::Socket::Status::Done) {
-        NOTICE_LOG(ACTIONREPLAY, "Listening on port %u", port);
-      } else {
+      while (serverSocket.listen(port) != sf::Socket::Status::Done) {
         NOTICE_LOG(ACTIONREPLAY, "Failed to listen on port %u", port);
-        return;
+        this_thread::sleep_for(10s);
       }
+      NOTICE_LOG(ACTIONREPLAY, "Listening on port %u", port);
       
       while (true) {
         auto sock = unique_ptr<sf::TcpSocket>(new sf::TcpSocket());
@@ -66,6 +65,7 @@ namespace PrimeMemoryDumping {
       if (gameID == 0x474D3845 && makerID == 0x3031) {
 //        json_message["heap"] = Prime1JsonDumper::parseHeap();
         json_message["player"] = Prime1JsonDumper::parsePlayer();
+        json_message["player_raw"] = Prime1JsonDumper::parsePlayerRaw();
         json_message["world"] = Prime1JsonDumper::parseWorld();
       }
 
