@@ -64,7 +64,8 @@ namespace PrimeMemoryDumping {
       //Prime 1
       if (gameID == 0x474D3845 && makerID == 0x3031) {
 //        json_message["heap"] = Prime1JsonDumper::parseHeap();
-        json_message["player"] = Prime1JsonDumper::parsePlayer();
+        json_message["camera"] = Prime1JsonDumper::parseCamera();
+//        json_message["player"] = Prime1JsonDumper::parsePlayer();
         json_message["player_raw"] = Prime1JsonDumper::parsePlayerRaw();
         json_message["world"] = Prime1JsonDumper::parseWorld();
       }
