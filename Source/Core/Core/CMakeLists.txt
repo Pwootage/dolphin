@@ -1,6 +1,6 @@
 add_subdirectory(PrimeMemoryDumping)
 include_directories(PrimeMemoryDumping/common)
-include_directories(PrimeMemoryDumping/prime1)
+include_directories(PrimeMemoryDumping/)
 
 add_definitions(-DJSON_NOEXCEPTION=true)
 

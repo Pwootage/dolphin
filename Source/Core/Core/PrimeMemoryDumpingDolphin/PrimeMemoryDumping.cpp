@@ -14,7 +14,7 @@
 #include "SFML/Network.hpp"
 #include "Common/MsgHandler.h"
 #include "PrimeMemoryDumping.h"
-#include "Prime1JsonDumper.h"
+#include "prime1/Prime1JsonDumper.hpp"
 #include "json.hpp"
 
 using namespace std;
@@ -64,36 +64,9 @@ namespace PrimeMemoryDumping {
       json json_message;
       //Prime 1
       if (gameID == 0x474D3845 && makerID == 0x3031) {
-        json_message["heap"] = Prime1JsonDumper::parseHeap();
-
-        //        uint32_t size = allocator.heapSize().read();
-//        printf("size: %u", size);
-//        u32 ptr = PowerPC::HostRead_U32(0x004578CC) - 0x80000000;
-//
-//        sf::Packet packet;
-//        packet << PACKET_TYPE_GAME_DATA;
-//        packet << gameID;
-//        packet << makerID;
-//        packet << ReadFloat(0x46BAB4); //Speed x
-//        packet << ReadFloat(0x46BAB8); //Speed y
-//        packet << ReadFloat(0x46BABC); //Speed Z
-//        packet << ReadFloat(0x46B9BC); //Pos X
-//        packet << ReadFloat(0x46B9CC); //Pos y
-//        packet << ReadFloat(0x46B9DC); //Pos z
-//        packet << PowerPC::HostRead_U32(0x45AA74); //room
-//        packet << ptr;
-//        packet << ReadFloat(ptr + 0x2AC); //heath
-//        for (int i = 0; i < INVENTORY_SIZE * 2; i++) { //Inventory (count, capacity)xINVENTORY_SIZE
-//          packet << PowerPC::HostRead_U32(ptr + 0x2C8 + i * 4);
-//        }
-//        packet << PowerPC::HostRead_U32(ptr + 0xA0); // Timer high bits
-//        packet << PowerPC::HostRead_U32(ptr + 0xA0 + 0x4); // Timer low bits
-//
-//        if (socket.send(packet, target, port) != sf::Socket::Done) {
-//          PanicAlertT("Failed to dump data to socket!");
-//        }
-
-
+//        json_message["heap"] = Prime1JsonDumper::parseHeap();
+        json_message["player"] = Prime1JsonDumper::parsePlayer();
+        json_message["world"] = Prime1JsonDumper::parseWorld();
       }
 
       sf::Packet packet;
