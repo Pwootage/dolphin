@@ -21,17 +21,14 @@ using namespace std;
 using namespace nlohmann;
 
 namespace PrimeMemoryDumping {
-    static constexpr u8 PACKET_TYPE_GAME_DATA = 1;
-    static constexpr u8 PACKET_TYPE_RAW_DISC_READ = 2;
-    
+
     static sf::TcpListener serverSocket;
     static thread acceptThread;
     static bool initalized = false;
     static mutex clientListMutex;
     static vector<unique_ptr<sf::TcpSocket>> clients;
     static constexpr u16 port = 43673;
-    static constexpr int INVENTORY_SIZE = 0x29;
-    
+
     void NetworkThread() {
       while (serverSocket.listen(port) != sf::Socket::Status::Done) {
         NOTICE_LOG(ACTIONREPLAY, "Failed to listen on port %u", port);
@@ -68,6 +65,8 @@ namespace PrimeMemoryDumping {
 //        json_message["player"] = Prime1JsonDumper::parsePlayer();
         json_message["player_raw"] = Prime1JsonDumper::parsePlayerRaw();
         json_message["world"] = Prime1JsonDumper::parseWorld();
+        json_message["pool_summary"] = Prime1JsonDumper::parsePoolSummary();
+        json_message["heap_stats"] = Prime1JsonDumper::parseHeapStats();
       }
 
       sf::Packet packet;
