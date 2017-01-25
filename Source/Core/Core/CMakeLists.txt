@@ -1,8 +1,9 @@
 add_subdirectory(PrimeMemoryDumping)
+
+add_definitions(-DJSON_NOEXCEPTION=1 -DPRIME_DUMP_JSON=1)
+
 include_directories(PrimeMemoryDumping/common)
 include_directories(PrimeMemoryDumping/)
-
-add_definitions(-DJSON_NOEXCEPTION=true -DPRIME_DUMP_JSON=true)
 
 set(SRCS	ActionReplay.cpp
 			Analytics.cpp

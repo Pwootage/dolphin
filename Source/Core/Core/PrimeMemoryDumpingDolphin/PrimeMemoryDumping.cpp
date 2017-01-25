@@ -17,12 +17,28 @@
 #include "prime1/Prime1JsonDumper.hpp"
 #include "json.hpp"
 
+#ifdef SFML_SYSTEM_WINDOWS
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#endif
+
 using namespace std;
 using namespace nlohmann;
 
+//Reuse SO_REUSEADDR for the sake of convenience (maybe should disable later? idk)
+class ReuseableListener : public sf::TcpListener {
+public:
+    void reuse() {
+      char reuse = 1;
+      setsockopt(getHandle(), SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    }
+};
+
+
 namespace PrimeMemoryDumping {
 
-    static sf::TcpListener serverSocket;
+    static ReuseableListener serverSocket;
     static thread acceptThread;
     static bool initalized = false;
     static mutex clientListMutex;
@@ -30,12 +46,13 @@ namespace PrimeMemoryDumping {
     static constexpr u16 port = 43673;
 
     void NetworkThread() {
+      serverSocket.reuse();
       while (serverSocket.listen(port) != sf::Socket::Status::Done) {
         NOTICE_LOG(ACTIONREPLAY, "Failed to listen on port %u", port);
         this_thread::sleep_for(10s);
       }
       NOTICE_LOG(ACTIONREPLAY, "Listening on port %u", port);
-      
+
       while (true) {
         auto sock = unique_ptr<sf::TcpSocket>(new sf::TcpSocket());
         sf::Socket::Status res = serverSocket.accept(*sock);
