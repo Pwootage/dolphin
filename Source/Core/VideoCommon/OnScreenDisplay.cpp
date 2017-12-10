@@ -45,6 +45,8 @@ void DrawMessage(const Message& msg, int top, int left, int time_left)
 
 void DrawMessages()
 {
+  DoCallbacks(CallbackType::DrawMessages);
+
   if (!SConfig::GetInstance().bOnScreenDisplayMessages)
     return;
 

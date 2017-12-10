@@ -59,7 +59,8 @@ enum class CallbackType
 {
   Initialization,
   OnFrame,
-  Shutdown
+  Shutdown,
+  DrawMessages
 };
 using Callback = std::function<void()>;
 
