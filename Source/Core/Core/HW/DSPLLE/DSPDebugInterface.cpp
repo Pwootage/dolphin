@@ -4,6 +4,7 @@
 
 #include "Core/HW/DSPLLE/DSPDebugInterface.h"
 
+#include <cstddef>
 #include <string>
 
 #include "Common/MsgHandler.h"
@@ -24,7 +25,7 @@ std::string DSPDebugInterface::Disassemble(unsigned int address)
 
 std::string DSPDebugInterface::GetRawMemoryString(int memory, unsigned int address)
 {
-  if (DSPCore_GetState() == DSPCORE_STOP)
+  if (DSPCore_GetState() == State::Stopped)
     return "";
 
   switch (memory)
@@ -67,7 +68,7 @@ unsigned int DSPDebugInterface::ReadInstruction(unsigned int address)
 
 bool DSPDebugInterface::IsAlive()
 {
-  return true;  // Core::GetState() != Core::CORE_UNINITIALIZED;
+  return true;
 }
 
 bool DSPDebugInterface::IsBreakpoint(unsigned int address)
@@ -116,7 +117,7 @@ void DSPDebugInterface::ToggleBreakpoint(unsigned int address)
   }
 }
 
-bool DSPDebugInterface::IsMemCheck(unsigned int address)
+bool DSPDebugInterface::IsMemCheck(unsigned int address, size_t size)
 {
   return false;
 }
@@ -131,9 +132,9 @@ void DSPDebugInterface::ToggleMemCheck(unsigned int address, bool read, bool wri
   PanicAlert("MemCheck functionality not supported in DSP module.");
 }
 
-void DSPDebugInterface::InsertBLR(unsigned int address, unsigned int value)
+void DSPDebugInterface::Patch(unsigned int address, unsigned int value)
 {
-  PanicAlert("insertBLR functionality not supported in DSP module.");
+  PanicAlert("Patch functionality not supported in DSP module.");
 }
 
 // =======================================================

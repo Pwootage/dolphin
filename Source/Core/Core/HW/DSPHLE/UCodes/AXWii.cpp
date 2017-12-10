@@ -5,12 +5,14 @@
 #define AX_WII  // Used in AXVoice.
 
 #include "Core/HW/DSPHLE/UCodes/AXWii.h"
+
 #include "Common/ChunkFile.h"
-#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/Logging/Log.h"
 #include "Common/MathUtil.h"
-#include "Common/StringUtil.h"
+#include "Common/Swap.h"
+#include "Core/HW/DSPHLE/DSPHLE.h"
+#include "Core/HW/DSPHLE/MailHandler.h"
 #include "Core/HW/DSPHLE/UCodes/AXStructs.h"
 #include "Core/HW/DSPHLE/UCodes/AXVoice.h"
 #include "Core/HW/DSPHLE/UCodes/UCodes.h"
@@ -449,7 +451,7 @@ void AXWiiUCode::ProcessPBList(u32 pb_addr)
                           m_samples_aux1,      m_samples_wm2,        m_samples_aux2,
                           m_samples_wm3,       m_samples_aux3}};
 
-    ReadPB(pb_addr, pb);
+    ReadPB(pb_addr, pb, m_crc);
 
     u16 num_updates[3];
     u16 updates[1024];
@@ -474,7 +476,7 @@ void AXWiiUCode::ProcessPBList(u32 pb_addr)
                    m_coeffs_available ? m_coeffs : nullptr);
     }
 
-    WritePB(pb_addr, pb);
+    WritePB(pb_addr, pb, m_crc);
     pb_addr = HILO_TO_32(pb.next_pb);
   }
 }
@@ -611,10 +613,7 @@ void AXWiiUCode::OutputSamples(u32 lr_addr, u32 surround_addr, u16 volume, bool 
   }
 
   memcpy(HLEMemory_Get_Pointer(lr_addr), buffer, sizeof(buffer));
-
-  // There should be a DSP_SYNC message sent here. However, it looks like not
-  // sending it does not cause any issue, and sending it actually causes some
-  // sounds to go at half speed. I have no idea why.
+  m_mail_handler.PushMail(DSP_SYNC, true);
 }
 
 void AXWiiUCode::OutputWMSamples(u32* addresses)

@@ -412,6 +412,7 @@ public:
   virtual ~XEmitter() {}
   void SetCodePtr(u8* ptr);
   void ReserveCodeSpace(int bytes);
+  const u8* AlignCodeTo(size_t alignment);
   const u8* AlignCode4();
   const u8* AlignCode16();
   const u8* AlignCodePage();
@@ -467,6 +468,7 @@ public:
 #undef CALL
 #endif
   void CALL(const void* fnptr);
+  FixupBranch CALL();
   void CALLptr(OpArg arg);
 
   FixupBranch J_CC(CCFlags conditionCode, bool force5bytes = false);

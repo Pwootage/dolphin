@@ -9,12 +9,12 @@
 #include <string>
 
 #include "Common/Assert.h"
-#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
 #include "Common/GekkoDisassembler.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
+#include "Common/Swap.h"
 #include "Common/x64Reg.h"
 #include "Core/HW/Memmap.h"
 #include "Core/MachineContext.h"
@@ -126,10 +126,10 @@ bool Jitx86Base::BackPatch(u32 emAddress, SContext* ctx)
   return true;
 }
 
-void LogGeneratedX86(int size, PPCAnalyst::CodeBuffer* code_buffer, const u8* normalEntry,
-                     JitBlock* b)
+void LogGeneratedX86(size_t size, const PPCAnalyst::CodeBuffer* code_buffer, const u8* normalEntry,
+                     const JitBlock* b)
 {
-  for (int i = 0; i < size; i++)
+  for (size_t i = 0; i < size; i++)
   {
     const PPCAnalyst::CodeOp& op = code_buffer->codebuffer[i];
     std::string temp = StringFromFormat(

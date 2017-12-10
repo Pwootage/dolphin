@@ -2,6 +2,8 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinWX/Debugger/CodeWindow.h"
+
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -23,17 +25,16 @@
 #include <wx/aui/dockart.h>
 // clang-format on
 
-#include "Common/BreakPoints.h"
 #include "Common/CommonTypes.h"
+#include "Common/Logging/Log.h"
 #include "Common/StringUtil.h"
 #include "Common/SymbolDB.h"
+#include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/Debugger/Debugger_SymbolMap.h"
 #include "Core/Debugger/PPCDebugInterface.h"
 #include "Core/HW/CPU.h"
-#include "Core/HW/Memmap.h"
-#include "Core/HW/SystemTimers.h"
-#include "Core/Host.h"
+#include "Core/PowerPC/BreakPoints.h"
 #include "Core/PowerPC/Gekko.h"
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
@@ -41,7 +42,6 @@
 #include "Core/PowerPC/PowerPC.h"
 #include "DolphinWX/Debugger/BreakpointWindow.h"
 #include "DolphinWX/Debugger/CodeView.h"
-#include "DolphinWX/Debugger/CodeWindow.h"
 #include "DolphinWX/Debugger/DebuggerUIUtil.h"
 #include "DolphinWX/Debugger/JitWindow.h"
 #include "DolphinWX/Debugger/MemoryWindow.h"
@@ -123,6 +123,8 @@ CCodeWindow::CCodeWindow(CFrame* parent, wxWindowID id, const wxPoint& position,
   Bind(wxEVT_MENU, &CCodeWindow::OnJitMenu, this, IDM_CLEAR_CODE_CACHE, IDM_SEARCH_INSTRUCTION);
   Bind(wxEVT_MENU, &CCodeWindow::OnSymbolsMenu, this, IDM_CLEAR_SYMBOLS, IDM_PATCH_HLE_FUNCTIONS);
   Bind(wxEVT_MENU, &CCodeWindow::OnProfilerMenu, this, IDM_PROFILE_BLOCKS, IDM_WRITE_PROFILE);
+  Bind(wxEVT_MENU, &CCodeWindow::OnBootToPauseSelected, this, IDM_BOOT_TO_PAUSE);
+  Bind(wxEVT_MENU, &CCodeWindow::OnAutomaticStartSelected, this, IDM_AUTOMATIC_START);
 
   // Toolbar
   Bind(wxEVT_MENU, &CCodeWindow::OnCodeStep, this, IDM_STEP, IDM_GOTOPC);
@@ -308,7 +310,7 @@ void CCodeWindow::SingleStep()
   if (CPU::IsStepping())
   {
     PowerPC::CoreMode old_mode = PowerPC::GetMode();
-    PowerPC::SetMode(PowerPC::MODE_INTERPRETER);
+    PowerPC::SetMode(PowerPC::CoreMode::Interpreter);
     PowerPC::breakpoints.ClearAllTemporary();
     CPU::StepOpcode(&sync_event);
     sync_event.WaitFor(std::chrono::milliseconds(20));
@@ -360,7 +362,7 @@ void CCodeWindow::StepOut()
     using clock = std::chrono::steady_clock;
     clock::time_point timeout = clock::now() + std::chrono::seconds(5);
     PowerPC::CoreMode old_mode = PowerPC::GetMode();
-    PowerPC::SetMode(PowerPC::MODE_INTERPRETER);
+    PowerPC::SetMode(PowerPC::CoreMode::Interpreter);
 
     // Loop until either the current instruction is a return instruction with no Link flag
     // or a breakpoint is detected so it can step at the breakpoint. If the PC is currently
@@ -456,7 +458,7 @@ void CCodeWindow::UpdateLists()
 
 void CCodeWindow::UpdateCallstack()
 {
-  if (Core::GetState() == Core::CORE_STOPPING)
+  if (Core::GetState() == Core::State::Stopping)
     return;
 
   callstack->Clear();
@@ -478,54 +480,50 @@ void CCodeWindow::UpdateCallstack()
 // CPU Mode and JIT Menu
 void CCodeWindow::OnCPUMode(wxCommandEvent& event)
 {
-  switch (event.GetId())
-  {
-  case IDM_INTERPRETER:
-    PowerPC::SetMode(UseInterpreter() ? PowerPC::MODE_INTERPRETER : PowerPC::MODE_JIT);
-    break;
-  case IDM_BOOT_TO_PAUSE:
-    SConfig::GetInstance().bBootToPause = event.IsChecked();
-    return;
-  case IDM_AUTOMATIC_START:
-    SConfig::GetInstance().bAutomaticStart = event.IsChecked();
-    return;
-  case IDM_JIT_OFF:
-    SConfig::GetInstance().bJITOff = event.IsChecked();
-    break;
-  case IDM_JIT_LS_OFF:
-    SConfig::GetInstance().bJITLoadStoreOff = event.IsChecked();
-    break;
-  case IDM_JIT_LSLXZ_OFF:
-    SConfig::GetInstance().bJITLoadStorelXzOff = event.IsChecked();
-    break;
-  case IDM_JIT_LSLWZ_OFF:
-    SConfig::GetInstance().bJITLoadStorelwzOff = event.IsChecked();
-    break;
-  case IDM_JIT_LSLBZX_OFF:
-    SConfig::GetInstance().bJITLoadStorelbzxOff = event.IsChecked();
-    break;
-  case IDM_JIT_LSF_OFF:
-    SConfig::GetInstance().bJITLoadStoreFloatingOff = event.IsChecked();
-    break;
-  case IDM_JIT_LSP_OFF:
-    SConfig::GetInstance().bJITLoadStorePairedOff = event.IsChecked();
-    break;
-  case IDM_JIT_FP_OFF:
-    SConfig::GetInstance().bJITFloatingPointOff = event.IsChecked();
-    break;
-  case IDM_JIT_I_OFF:
-    SConfig::GetInstance().bJITIntegerOff = event.IsChecked();
-    break;
-  case IDM_JIT_P_OFF:
-    SConfig::GetInstance().bJITPairedOff = event.IsChecked();
-    break;
-  case IDM_JIT_SR_OFF:
-    SConfig::GetInstance().bJITSystemRegistersOff = event.IsChecked();
-    break;
-  }
+  Core::RunAsCPUThread([&event] {
+    switch (event.GetId())
+    {
+    case IDM_INTERPRETER:
+      PowerPC::SetMode(event.IsChecked() ? PowerPC::CoreMode::Interpreter : PowerPC::CoreMode::JIT);
+      break;
+    case IDM_JIT_OFF:
+      SConfig::GetInstance().bJITOff = event.IsChecked();
+      break;
+    case IDM_JIT_LS_OFF:
+      SConfig::GetInstance().bJITLoadStoreOff = event.IsChecked();
+      break;
+    case IDM_JIT_LSLXZ_OFF:
+      SConfig::GetInstance().bJITLoadStorelXzOff = event.IsChecked();
+      break;
+    case IDM_JIT_LSLWZ_OFF:
+      SConfig::GetInstance().bJITLoadStorelwzOff = event.IsChecked();
+      break;
+    case IDM_JIT_LSLBZX_OFF:
+      SConfig::GetInstance().bJITLoadStorelbzxOff = event.IsChecked();
+      break;
+    case IDM_JIT_LSF_OFF:
+      SConfig::GetInstance().bJITLoadStoreFloatingOff = event.IsChecked();
+      break;
+    case IDM_JIT_LSP_OFF:
+      SConfig::GetInstance().bJITLoadStorePairedOff = event.IsChecked();
+      break;
+    case IDM_JIT_FP_OFF:
+      SConfig::GetInstance().bJITFloatingPointOff = event.IsChecked();
+      break;
+    case IDM_JIT_I_OFF:
+      SConfig::GetInstance().bJITIntegerOff = event.IsChecked();
+      break;
+    case IDM_JIT_P_OFF:
+      SConfig::GetInstance().bJITPairedOff = event.IsChecked();
+      break;
+    case IDM_JIT_SR_OFF:
+      SConfig::GetInstance().bJITSystemRegistersOff = event.IsChecked();
+      break;
+    }
 
-  // Clear the JIT cache to enable these changes
-  JitInterface::ClearCache();
+    // Clear the JIT cache to enable these changes
+    JitInterface::ClearCache();
+  });
 }
 
 void CCodeWindow::OnJitMenu(wxCommandEvent& event)
@@ -537,7 +535,7 @@ void CCodeWindow::OnJitMenu(wxCommandEvent& event)
     break;
 
   case IDM_CLEAR_CODE_CACHE:
-    JitInterface::ClearCache();
+    Core::RunAsCPUThread(JitInterface::ClearCache);
     break;
 
   case IDM_SEARCH_INSTRUCTION:
@@ -559,32 +557,6 @@ void CCodeWindow::OnJitMenu(wxCommandEvent& event)
     break;
   }
   }
-}
-
-// Shortcuts
-bool CCodeWindow::UseInterpreter()
-{
-  return GetParentMenuBar()->IsChecked(IDM_INTERPRETER);
-}
-
-bool CCodeWindow::BootToPause()
-{
-  return GetParentMenuBar()->IsChecked(IDM_BOOT_TO_PAUSE);
-}
-
-bool CCodeWindow::AutomaticStart()
-{
-  return GetParentMenuBar()->IsChecked(IDM_AUTOMATIC_START);
-}
-
-bool CCodeWindow::JITNoBlockCache()
-{
-  return GetParentMenuBar()->IsChecked(IDM_JIT_NO_BLOCK_CACHE);
-}
-
-bool CCodeWindow::JITNoBlockLinking()
-{
-  return GetParentMenuBar()->IsChecked(IDM_JIT_NO_BLOCK_LINKING);
 }
 
 // Update GUI

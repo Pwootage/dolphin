@@ -23,22 +23,32 @@
 #include <wx/spinctrl.h>
 #include <wx/timer.h>
 
-#include "InputCommon/ControllerEmu.h"
-#include "InputCommon/ControllerInterface/ControllerInterface.h"
 #include "InputCommon/ControllerInterface/Device.h"
 
+class ControlReference;
 class DolphinSlider;
 class InputConfig;
+class InputConfigDialog;
 class wxComboBox;
 class wxListBox;
 class wxStaticBitmap;
 class wxStaticText;
 class wxTextCtrl;
 
+namespace ControllerEmu
+{
+class BooleanSetting;
+class ControlGroup;
+class EmulatedController;
+class Extension;
+class NumericSetting;
+}
+
 class PadSetting
 {
 protected:
-  PadSetting(wxControl* const _control) : wxcontrol(_control) { wxcontrol->SetClientData(this); }
+  PadSetting(wxControl* const _control);
+
 public:
   virtual void UpdateGUI() = 0;
   virtual void UpdateValue() = 0;
@@ -60,58 +70,48 @@ public:
 class PadSettingSpin : public PadSetting
 {
 public:
-  PadSettingSpin(wxWindow* const parent,
-                 ControllerEmu::ControlGroup::NumericSetting* const setting);
+  PadSettingSpin(wxWindow* const parent, ControllerEmu::NumericSetting* const setting);
   void UpdateGUI() override;
   void UpdateValue() override;
 
-  ControllerEmu::ControlGroup::NumericSetting* const setting;
+  ControllerEmu::NumericSetting* const setting;
 };
 
 class PadSettingCheckBox : public PadSetting
 {
 public:
-  PadSettingCheckBox(wxWindow* const parent,
-                     ControllerEmu::ControlGroup::BooleanSetting* const setting);
+  PadSettingCheckBox(wxWindow* const parent, ControllerEmu::BooleanSetting* const setting);
   void UpdateGUI() override;
   void UpdateValue() override;
 
-  ControllerEmu::ControlGroup::BooleanSetting* const setting;
+  ControllerEmu::BooleanSetting* const setting;
 };
 
 class InputEventFilter : public wxEventFilter
 {
 public:
-  InputEventFilter() { wxEvtHandler::AddFilter(this); }
-  ~InputEventFilter() { wxEvtHandler::RemoveFilter(this); }
+  InputEventFilter();
+  ~InputEventFilter();
   int FilterEvent(wxEvent& event) override;
 
-  void BlockEvents(bool block) { m_block = block; }
+  void BlockEvents(bool block);
+
 private:
-  static bool ShouldCatchEventType(wxEventType type)
-  {
-    return type == wxEVT_KEY_DOWN || type == wxEVT_KEY_UP || type == wxEVT_CHAR ||
-           type == wxEVT_CHAR_HOOK || type == wxEVT_LEFT_DOWN || type == wxEVT_LEFT_UP ||
-           type == wxEVT_MIDDLE_DOWN || type == wxEVT_MIDDLE_UP || type == wxEVT_RIGHT_DOWN ||
-           type == wxEVT_RIGHT_UP;
-  }
+  static bool ShouldCatchEventType(wxEventType type);
 
   bool m_block = false;
 };
 
-class InputConfigDialog;
-
 class ControlDialog : public wxDialog
 {
 public:
-  ControlDialog(InputConfigDialog* const parent, InputConfig& config,
-                ControllerInterface::ControlReference* const ref);
+  ControlDialog(InputConfigDialog* const parent, InputConfig& config, ControlReference* const ref);
 
   bool Validate() override;
 
   int GetRangeSliderValue() const;
 
-  ControllerInterface::ControlReference* const control_reference;
+  ControlReference* const control_reference;
   InputConfig& m_config;
 
 private:
@@ -148,21 +148,17 @@ private:
 class ExtensionButton : public wxButton
 {
 public:
-  ExtensionButton(wxWindow* const parent, ControllerEmu::Extension* const ext)
-      : wxButton(parent, wxID_ANY, _("Configure"), wxDefaultPosition), extension(ext)
-  {
-  }
-
+  ExtensionButton(wxWindow* const parent, ControllerEmu::Extension* const ext);
   ControllerEmu::Extension* const extension;
 };
 
 class ControlButton : public wxButton
 {
 public:
-  ControlButton(wxWindow* const parent, ControllerInterface::ControlReference* const _ref,
-                const std::string& name, const unsigned int width, const std::string& label = {});
+  ControlButton(wxWindow* const parent, ControlReference* const _ref, const std::string& name,
+                const unsigned int width, const std::string& label = {});
 
-  ControllerInterface::ControlReference* const control_reference;
+  ControlReference* const control_reference;
   const std::string m_name;
 
 protected:
@@ -178,11 +174,7 @@ public:
                   InputConfigDialog* eventsink);
   ~ControlGroupBox();
 
-  bool HasBitmapHeading() const
-  {
-    return control_group->type == GROUP_TYPE_STICK || control_group->type == GROUP_TYPE_TILT ||
-           control_group->type == GROUP_TYPE_CURSOR || control_group->type == GROUP_TYPE_FORCE;
-  }
+  bool HasBitmapHeading() const;
 
   std::vector<PadSetting*> options;
 
@@ -199,6 +191,7 @@ public:
                     const int port_num = 0);
   virtual ~InputConfigDialog() = default;
 
+  void OnActivate(wxActivateEvent& event);
   void OnClose(wxCloseEvent& event);
   void OnCloseButton(wxCommandEvent& event);
 
@@ -234,7 +227,7 @@ public:
   void AdjustBooleanSetting(wxCommandEvent& event);
 
   void GetProfilePath(std::string& path);
-  ControllerEmu* GetController() const;
+  ControllerEmu::EmulatedController* GetController() const;
 
   wxComboBox* profile_cbox = nullptr;
   wxComboBox* device_cbox = nullptr;
@@ -247,8 +240,9 @@ protected:
   wxBoxSizer* CreaterResetGroupBox(wxOrientation orientation);
   wxBoxSizer* CreateProfileChooserGroupBox();
 
-  ControllerEmu* const controller;
+  ControllerEmu::EmulatedController* const controller;
 
+  bool m_iterate = false;
   wxTimer m_update_timer;
 
 private:
@@ -258,5 +252,4 @@ private:
   InputEventFilter m_event_filter;
 
   bool DetectButton(ControlButton* button);
-  bool m_iterate = false;
 };

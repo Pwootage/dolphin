@@ -2,10 +2,12 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include <cstring>
 #include <fcntl.h>
 #include <libudev.h>
 #include <map>
 #include <memory>
+#include <string>
 #include <unistd.h>
 
 #include <sys/eventfd.h>
@@ -311,7 +313,7 @@ evdevDevice::Axis::Axis(u8 index, u16 code, bool upper, libevdev* dev)
     : m_code(code), m_index(index), m_upper(upper), m_dev(dev)
 {
   m_min = libevdev_get_abs_minimum(m_dev, m_code);
-  m_range = libevdev_get_abs_maximum(m_dev, m_code) + abs(m_min);
+  m_range = libevdev_get_abs_maximum(m_dev, m_code) - m_min;
 }
 
 std::string evdevDevice::Axis::GetName() const

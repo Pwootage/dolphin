@@ -16,7 +16,7 @@ class wxTextCtrl;
 
 namespace DiscIO
 {
-class IVolume;
+class Volume;
 enum class Language;
 }
 
@@ -24,27 +24,11 @@ class InfoPanel final : public wxPanel
 {
 public:
   InfoPanel(wxWindow* parent, wxWindowID id, const GameListItem& item,
-            const std::unique_ptr<DiscIO::IVolume>& opened_iso);
+            const std::unique_ptr<DiscIO::Volume>& opened_iso);
 
 private:
   enum
   {
-    ID_NAME = 10000,
-    ID_GAME_ID,
-    ID_COUNTRY,
-    ID_MAKER_ID,
-    ID_REVISION,
-    ID_DATE,
-    ID_FST,
-    ID_MD5_SUM,
-    ID_MD5_SUM_COMPUTE,
-    ID_VERSION,
-    ID_LANGUAGE,
-    ID_SHORT_NAME,
-    ID_MAKER,
-    ID_COMMENT,
-    ID_BANNER,
-
     IDM_SAVE_BANNER
   };
 
@@ -69,7 +53,7 @@ private:
   void EmitTitleChangeEvent(const wxString& new_title);
 
   const GameListItem& m_game_list_item;
-  const std::unique_ptr<DiscIO::IVolume>& m_opened_iso;
+  const std::unique_ptr<DiscIO::Volume>& m_opened_iso;
 
   wxTextCtrl* m_internal_name;
   wxTextCtrl* m_game_id;
@@ -77,7 +61,7 @@ private:
   wxTextCtrl* m_maker_id;
   wxTextCtrl* m_revision;
   wxTextCtrl* m_date;
-  wxTextCtrl* m_fst;
+  wxTextCtrl* m_ios_version = nullptr;
   wxTextCtrl* m_md5_sum;
   wxButton* m_md5_sum_compute;
   wxChoice* m_languages;

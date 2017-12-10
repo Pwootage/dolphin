@@ -32,7 +32,7 @@ static DSPDebuggerLLE* m_DebuggerFrame = nullptr;
 
 DSPDebuggerLLE::DSPDebuggerLLE(wxWindow* parent, wxWindowID id)
     : wxPanel(parent, id, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL, _("DSP LLE Debugger")),
-      m_CachedStepCounter(-1), m_toolbar_item_size(FromDIP(wxSize(16, 16)))
+      m_CachedStepCounter(UINT64_MAX), m_toolbar_item_size(FromDIP(wxSize(16, 16)))
 {
   Bind(wxEVT_MENU, &DSPDebuggerLLE::OnChangeState, this, ID_RUNTOOL, ID_SHOWPCTOOL);
 
@@ -115,22 +115,22 @@ DSPDebuggerLLE::~DSPDebuggerLLE()
 
 void DSPDebuggerLLE::OnChangeState(wxCommandEvent& event)
 {
-  const DSP::DSPCoreState dsp_state = DSP::DSPCore_GetState();
+  const DSP::State dsp_state = DSP::DSPCore_GetState();
 
-  if (dsp_state == DSP::DSPCORE_STOP)
+  if (dsp_state == DSP::State::Stopped)
     return;
 
   switch (event.GetId())
   {
   case ID_RUNTOOL:
-    if (dsp_state == DSP::DSPCORE_RUNNING)
-      DSP::DSPCore_SetState(DSP::DSPCORE_STEPPING);
+    if (dsp_state == DSP::State::Running)
+      DSP::DSPCore_SetState(DSP::State::Stepping);
     else
-      DSP::DSPCore_SetState(DSP::DSPCORE_RUNNING);
+      DSP::DSPCore_SetState(DSP::State::Running);
     break;
 
   case ID_STEPTOOL:
-    if (dsp_state == DSP::DSPCORE_STEPPING)
+    if (dsp_state == DSP::State::Stepping)
     {
       DSP::DSPCore_Step();
       Repopulate();
@@ -175,7 +175,7 @@ void DSPDebuggerLLE::FocusOnPC()
 
 void DSPDebuggerLLE::UpdateState()
 {
-  if (DSP::DSPCore_GetState() == DSP::DSPCORE_RUNNING)
+  if (DSP::DSPCore_GetState() == DSP::State::Running)
   {
     m_Toolbar->SetToolLabel(ID_RUNTOOL, _("Pause"));
     m_Toolbar->SetToolBitmap(

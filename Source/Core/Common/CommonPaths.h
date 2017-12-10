@@ -75,6 +75,8 @@
 #define ANAGLYPH_DIR "Anaglyph"
 #define PIPES_DIR "Pipes"
 #define MEMORYWATCHER_DIR "MemoryWatcher"
+#define WFSROOT_DIR "WFS"
+#define BACKUP_DIR "Backup"
 
 // This one is only used to remove it if it was present
 #define SHADERCACHE_LEGACY_DIR "ShaderCache"
@@ -85,8 +87,13 @@
 // Filenames
 // Files in the directory returned by GetUserPath(D_CONFIG_IDX)
 #define DOLPHIN_CONFIG "Dolphin.ini"
+#define GCPAD_CONFIG "GCPadNew.ini"
+#define WIIPAD_CONFIG "WiimoteNew.ini"
+#define GCKEYBOARD_CONFIG "GCKeyNew.ini"
+#define GFX_CONFIG "GFX.ini"
 #define DEBUGGER_CONFIG "Debugger.ini"
 #define LOGGER_CONFIG "Logger.ini"
+#define UI_CONFIG "UI.ini"
 
 // Files in the directory returned by GetUserPath(D_LOGS_IDX)
 #define MAIN_LOG "dolphin.log"

@@ -7,13 +7,21 @@
 #include <array>
 #include <string>
 
-#include "InputCommon/ControllerEmu.h"
+#include "Common/CommonTypes.h"
+#include "InputCommon/ControllerEmu/ControllerEmu.h"
 #include "InputCommon/InputConfig.h"
+
+namespace ControllerEmu
+{
+class ControllerEmu;
+class Buttons;
+}
 
 enum Hotkey
 {
   HK_OPEN,
   HK_CHANGE_DISC,
+  HK_EJECT_DISC,
   HK_REFRESH_LIST,
   HK_PLAY_PAUSE,
   HK_STOP,
@@ -40,6 +48,18 @@ enum Hotkey
   HK_EXPORT_RECORDING,
   HK_READ_ONLY_MODE,
 
+  HK_STEP,
+  HK_STEP_OVER,
+  HK_STEP_OUT,
+  HK_SKIP,
+
+  HK_SHOW_PC,
+  HK_SET_PC,
+
+  HK_BP_TOGGLE,
+  HK_BP_ADD,
+  HK_MBP_ADD,
+
   HK_TRIGGER_SYNC_BUTTON,
   HK_WIIMOTE1_CONNECT,
   HK_WIIMOTE2_CONNECT,
@@ -50,6 +70,8 @@ enum Hotkey
   HK_TOGGLE_CROP,
   HK_TOGGLE_AR,
   HK_TOGGLE_EFBCOPIES,
+  HK_TOGGLE_XFBCOPIES,
+  HK_TOGGLE_IMMEDIATE_XFB,
   HK_TOGGLE_FOG,
   HK_TOGGLE_DUMPTEXTURES,
   HK_TOGGLE_TEXTURES,
@@ -140,6 +162,9 @@ enum HotkeyGroup : int
   HKGP_SPEED,
   HKGP_FRAME_ADVANCE,
   HKGP_MOVIE,
+  HKGP_STEPPING,
+  HKGP_PC,
+  HKGP_BREAKPOINT,
   HKGP_WII,
   HKGP_GRAPHICS_TOGGLES,
   HKGP_IR,
@@ -168,7 +193,7 @@ struct HotkeyStatus
   s8 err;
 };
 
-class HotkeyManager : public ControllerEmu
+class HotkeyManager : public ControllerEmu::EmulatedController
 {
 public:
   HotkeyManager();
@@ -176,16 +201,14 @@ public:
 
   void GetInput(HotkeyStatus* const hk);
   std::string GetName() const override;
-  ControlGroup* GetHotkeyGroup(HotkeyGroup group) const;
-  ControlGroup* GetOptionsGroup() const;
+  ControllerEmu::ControlGroup* GetHotkeyGroup(HotkeyGroup group) const;
   int FindGroupByID(int id) const;
   int GetIndexForGroup(int group, int id) const;
   void LoadDefaults(const ControllerInterface& ciface) override;
 
 private:
-  Buttons* m_keys[NUM_HOTKEY_GROUPS];
-  std::array<ControlGroup*, NUM_HOTKEY_GROUPS> m_hotkey_groups;
-  ControlGroup* m_options;
+  ControllerEmu::Buttons* m_keys[NUM_HOTKEY_GROUPS];
+  std::array<ControllerEmu::ControlGroup*, NUM_HOTKEY_GROUPS> m_hotkey_groups;
 };
 
 namespace HotkeyManagerEmu
@@ -196,7 +219,6 @@ void LoadConfig();
 
 InputConfig* GetConfig();
 ControllerEmu::ControlGroup* GetHotkeyGroup(HotkeyGroup group);
-ControllerEmu::ControlGroup* GetOptionsGroup();
 void GetStatus();
 bool IsEnabled();
 void Enable(bool enable_toggle);

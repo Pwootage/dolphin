@@ -3,9 +3,18 @@
 // Refer to the license.txt file included.
 
 #include "Core/HW/GCPadEmu.h"
+
 #include "Common/Common.h"
 #include "Common/CommonTypes.h"
-#include "Core/Host.h"
+
+#include "InputCommon/ControllerEmu/Control/Input.h"
+#include "InputCommon/ControllerEmu/Control/Output.h"
+#include "InputCommon/ControllerEmu/ControlGroup/AnalogStick.h"
+#include "InputCommon/ControllerEmu/ControlGroup/Buttons.h"
+#include "InputCommon/ControllerEmu/ControlGroup/ControlGroup.h"
+#include "InputCommon/ControllerEmu/ControlGroup/MixedTriggers.h"
+#include "InputCommon/ControllerEmu/Setting/BooleanSetting.h"
+#include "InputCommon/GCPadStatus.h"
 
 static const u16 button_bitmasks[] = {
     PAD_BUTTON_A,
@@ -24,7 +33,7 @@ static const u16 trigger_bitmasks[] = {
 static const u16 dpad_bitmasks[] = {PAD_BUTTON_UP, PAD_BUTTON_DOWN, PAD_BUTTON_LEFT,
                                     PAD_BUTTON_RIGHT};
 
-static const char* const named_buttons[] = {"A", "B", "X", "Y", "Z", _trans("Start")};
+static const char* const named_buttons[] = {"A", "B", "X", "Y", "Z", "Start"};
 
 static const char* const named_triggers[] = {
     // i18n: The left trigger button (labeled L on real controllers)
@@ -39,40 +48,47 @@ static const char* const named_triggers[] = {
 GCPad::GCPad(const unsigned int index) : m_index(index)
 {
   // buttons
-  groups.emplace_back(m_buttons = new Buttons(_trans("Buttons")));
-  for (unsigned int i = 0; i < sizeof(named_buttons) / sizeof(*named_buttons); ++i)
-    m_buttons->controls.emplace_back(new ControlGroup::Input(named_buttons[i]));
+  groups.emplace_back(m_buttons = new ControllerEmu::Buttons(_trans("Buttons")));
+  for (const char* named_button : named_buttons)
+  {
+    const std::string& ui_name =
+        // i18n: The START/PAUSE button on GameCube controllers
+        (named_button == std::string("Start")) ? _trans("START") : named_button;
+    m_buttons->controls.emplace_back(new ControllerEmu::Input(named_button, ui_name));
+  }
 
   // sticks
-  groups.emplace_back(m_main_stick = new AnalogStick("Main Stick", _trans("Control Stick"),
-                                                     DEFAULT_PAD_STICK_RADIUS));
-  groups.emplace_back(m_c_stick =
-                          new AnalogStick("C-Stick", _trans("C Stick"), DEFAULT_PAD_STICK_RADIUS));
+  groups.emplace_back(m_main_stick = new ControllerEmu::AnalogStick(
+                          "Main Stick", _trans("Control Stick"), DEFAULT_PAD_STICK_RADIUS));
+  groups.emplace_back(m_c_stick = new ControllerEmu::AnalogStick("C-Stick", _trans("C Stick"),
+                                                                 DEFAULT_PAD_STICK_RADIUS));
 
   // triggers
-  groups.emplace_back(m_triggers = new MixedTriggers(_trans("Triggers")));
-  for (auto& named_trigger : named_triggers)
-    m_triggers->controls.emplace_back(new ControlGroup::Input(named_trigger));
+  groups.emplace_back(m_triggers = new ControllerEmu::MixedTriggers(_trans("Triggers")));
+  for (const char* named_trigger : named_triggers)
+    m_triggers->controls.emplace_back(new ControllerEmu::Input(named_trigger));
 
   // rumble
-  groups.emplace_back(m_rumble = new ControlGroup(_trans("Rumble")));
-  m_rumble->controls.emplace_back(new ControlGroup::Output(_trans("Motor")));
+  groups.emplace_back(m_rumble = new ControllerEmu::ControlGroup(_trans("Rumble")));
+  m_rumble->controls.emplace_back(new ControllerEmu::Output(_trans("Motor")));
 
   // Microphone
-  groups.emplace_back(m_mic = new Buttons(_trans("Microphone")));
-  m_mic->controls.emplace_back(new ControlGroup::Input(_trans("Button")));
+  groups.emplace_back(m_mic = new ControllerEmu::Buttons(_trans("Microphone")));
+  m_mic->controls.emplace_back(new ControllerEmu::Input(_trans("Button")));
 
   // dpad
-  groups.emplace_back(m_dpad = new Buttons(_trans("D-Pad")));
-  for (auto& named_direction : named_directions)
-    m_dpad->controls.emplace_back(new ControlGroup::Input(named_direction));
+  groups.emplace_back(m_dpad = new ControllerEmu::Buttons(_trans("D-Pad")));
+  for (const char* named_direction : named_directions)
+    m_dpad->controls.emplace_back(new ControllerEmu::Input(named_direction));
 
   // options
-  groups.emplace_back(m_options = new ControlGroup(_trans("Options")));
+  groups.emplace_back(m_options = new ControllerEmu::ControlGroup(_trans("Options")));
   m_options->boolean_settings.emplace_back(
-      std::make_unique<ControlGroup::BackgroundInputSetting>(_trans("Background Input")));
-  m_options->boolean_settings.emplace_back(std::make_unique<ControlGroup::BooleanSetting>(
-      _trans("Iterative Input"), false, ControlGroup::SettingType::VIRTUAL));
+      // i18n: Treat a controller as always being connected regardless of what
+      // devices the user actually has plugged in
+      m_always_connected = new ControllerEmu::BooleanSetting(_trans("Always Connected"), false));
+  m_options->boolean_settings.emplace_back(std::make_unique<ControllerEmu::BooleanSetting>(
+      _trans("Iterative Input"), false, ControllerEmu::SettingType::VIRTUAL));
 }
 
 std::string GCPad::GetName() const
@@ -107,10 +123,16 @@ ControllerEmu::ControlGroup* GCPad::GetGroup(PadGroup group)
 
 GCPadStatus GCPad::GetInput() const
 {
-  auto lock = ControllerEmu::GetStateLock();
+  const auto lock = GetStateLock();
 
   ControlState x, y, triggers[2];
   GCPadStatus pad = {};
+
+  if (!(m_always_connected->GetValue() || IsDefaultDeviceConnected()))
+  {
+    pad.isConnected = false;
+    return pad;
+  }
 
   // buttons
   m_buttons->GetState(&pad.button, button_bitmasks);
@@ -147,13 +169,13 @@ GCPadStatus GCPad::GetInput() const
 
 void GCPad::SetOutput(const ControlState strength)
 {
-  auto lock = ControllerEmu::GetStateLock();
+  const auto lock = GetStateLock();
   m_rumble->controls[0]->control_ref->State(strength);
 }
 
 void GCPad::LoadDefaults(const ControllerInterface& ciface)
 {
-  ControllerEmu::LoadDefaults(ciface);
+  EmulatedController::LoadDefaults(ciface);
 
   // Buttons
   m_buttons->SetControlExpression(0, "X");  // A
@@ -222,6 +244,6 @@ void GCPad::LoadDefaults(const ControllerInterface& ciface)
 
 bool GCPad::GetMicButton() const
 {
-  auto lock = ControllerEmu::GetStateLock();
+  const auto lock = GetStateLock();
   return (0.0f != m_mic->controls.back()->control_ref->State());
 }

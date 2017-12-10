@@ -20,6 +20,33 @@ import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.util.HashMap;
 import java.util.Set;
+import java.util.TreeSet;
+
+/**
+ * A HashMap<String, SettingSection> that constructs a new SettingSection instead of returning null
+ * when getting a key not already in the map
+ */
+final class SettingsSectionMap extends HashMap<String, SettingSection>
+{
+	@Override
+	public SettingSection get(Object key)
+	{
+		if (!(key instanceof String))
+		{
+			return null;
+		}
+
+		String stringKey = (String)key;
+
+		if (!super.containsKey(stringKey))
+		{
+			SettingSection section = new SettingSection(stringKey);
+			super.put(stringKey, section);
+			return section;
+		}
+		return super.get(key);
+	}
+}
 
 /**
  * Contains static methods for interacting with .ini files in which settings are stored.
@@ -52,9 +79,12 @@ public final class SettingsFile
 	public static final String KEY_OVERCLOCK_ENABLE = "OverclockEnable";
 	public static final String KEY_OVERCLOCK_PERCENT = "Overclock";
 	public static final String KEY_VIDEO_BACKEND = "GFXBackend";
+	public static final String KEY_AUDIO_STRETCH = "AudioStretch";
+	public static final String KEY_SLOT_A_DEVICE = "SlotA";
+	public static final String KEY_SLOT_B_DEVICE = "SlotB";
 
 	public static final String KEY_SHOW_FPS = "ShowFPS";
-	public static final String KEY_INTERNAL_RES = "EFBScale";
+	public static final String KEY_INTERNAL_RES = "InternalResolution";
 	public static final String KEY_FSAA = "MSAA";
 	public static final String KEY_ANISOTROPY = "MaxAnisotropy";
 	public static final String KEY_POST_SHADER = "PostProcessingShader";
@@ -72,10 +102,14 @@ public final class SettingsFile
 	public static final String KEY_IGNORE_FORMAT = "EFBEmulateFormatChanges";
 	public static final String KEY_EFB_TEXTURE = "EFBToTextureEnable";
 	public static final String KEY_TEXCACHE_ACCURACY = "SafeTextureCacheColorSamples";
+	public static final String KEY_GPU_TEXTURE_DECODING = "EnableGPUTextureDecoding";
 	public static final String KEY_XFB = "UseXFB";
 	public static final String KEY_XFB_REAL = "UseRealXFB";
 	public static final String KEY_FAST_DEPTH = "FastDepthCalc";
 	public static final String KEY_ASPECT_RATIO = "AspectRatio";
+	public static final String KEY_UBERSHADER_MODE = "UberShaderMode";
+	public static final String KEY_DISABLE_SPECIALIZED_SHADERS = "DisableSpecializedShaders";
+	public static final String KEY_BACKGROUND_SHADER_COMPILING = "BackgroundShaderCompiling";
 
 	public static final String KEY_GCPAD_TYPE = "SIDevice";
 
@@ -250,7 +284,7 @@ public final class SettingsFile
 	 */
 	public static HashMap<String, SettingSection> readFile(final String fileName, SettingsActivityView view)
 	{
-		HashMap<String, SettingSection> sections = new HashMap<>();
+		HashMap<String, SettingSection> sections = new SettingsSectionMap();
 
 		File ini = getSettingsFile(fileName);
 
@@ -268,10 +302,13 @@ public final class SettingsFile
 					current = sectionFromLine(line);
 					sections.put(current.getName(), current);
 				}
-				else if ((current != null) && line.contains("="))
+				else if ((current != null))
 				{
 					Setting setting = settingFromLine(current, line, fileName);
-					current.putSetting(setting);
+					if (setting != null)
+					{
+						current.putSetting(setting);
+					}
 				}
 			}
 		}
@@ -322,8 +359,9 @@ public final class SettingsFile
 			writer = new PrintWriter(ini, "UTF-8");
 
 			Set<String> keySet = sections.keySet();
+			Set<String> sortedKeySet = new TreeSet<>(keySet);
 
-			for (String key : keySet)
+			for (String key : sortedKeySet)
 			{
 				SettingSection section = sections.get(key);
 				writeSection(writer, section);
@@ -373,6 +411,12 @@ public final class SettingsFile
 	private static Setting settingFromLine(SettingSection current, String line, String fileName)
 	{
 		String[] splitLine = line.split("=");
+
+		if (splitLine.length != 2)
+		{
+			Log.warning("Skipping invalid config line \"" + line + "\"");
+			return null;
+		}
 
 		String key = splitLine[0].trim();
 		String value = splitLine[1].trim();
@@ -437,8 +481,9 @@ public final class SettingsFile
 		// Write this section's values.
 		HashMap<String, Setting> settings = section.getSettings();
 		Set<String> keySet = settings.keySet();
+		Set<String> sortedKeySet = new TreeSet<>(keySet);
 
-		for (String key : keySet)
+		for (String key : sortedKeySet)
 		{
 			Setting setting = settings.get(key);
 			String settingString = settingAsString(setting);

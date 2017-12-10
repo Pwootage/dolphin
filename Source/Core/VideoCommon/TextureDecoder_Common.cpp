@@ -4,12 +4,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
-#include "Common/CommonFuncs.h"
 #include "Common/CommonTypes.h"
+#include "Common/MathUtil.h"
 #include "Common/MsgHandler.h"
+#include "Common/Swap.h"
+
 #include "VideoCommon/LookUpTables.h"
 #include "VideoCommon/TextureDecoder.h"
+#include "VideoCommon/TextureDecoder_Util.h"
 #include "VideoCommon/sfont.inc"
 
 static bool TexFmt_Overlay_Enable = false;
@@ -19,227 +23,193 @@ static bool TexFmt_Overlay_Center = false;
 // STATE_TO_SAVE
 alignas(16) u8 texMem[TMEM_SIZE];
 
-int TexDecoder_GetTexelSizeInNibbles(int format)
+int TexDecoder_GetTexelSizeInNibbles(TextureFormat format)
 {
-  switch (format & 0x3f)
+  switch (format)
   {
-  case GX_TF_I4:
+  // 4-bit formats
+  case TextureFormat::I4:
+  case TextureFormat::C4:
     return 1;
-  case GX_TF_I8:
+  // 8-bit formats
+  case TextureFormat::I8:
+  case TextureFormat::IA4:
+  case TextureFormat::C8:
     return 2;
-  case GX_TF_IA4:
-    return 2;
-  case GX_TF_IA8:
+  // 16-bit formats
+  case TextureFormat::IA8:
+  case TextureFormat::RGB565:
+  case TextureFormat::RGB5A3:
+  case TextureFormat::C14X2:
     return 4;
-  case GX_TF_RGB565:
-    return 4;
-  case GX_TF_RGB5A3:
-    return 4;
-  case GX_TF_RGBA8:
+  // 32-bit formats
+  case TextureFormat::RGBA8:
     return 8;
-  case GX_TF_C4:
+  // Compressed format
+  case TextureFormat::CMPR:
     return 1;
-  case GX_TF_C8:
-    return 2;
-  case GX_TF_C14X2:
-    return 4;
-  case GX_TF_CMPR:
-    return 1;
-  case GX_CTF_R4:
-    return 1;
-  case GX_CTF_RA4:
-    return 2;
-  case GX_CTF_RA8:
-    return 4;
-  case GX_CTF_A8:
-    return 2;
-  case GX_CTF_R8:
-    return 2;
-  case GX_CTF_G8:
-    return 2;
-  case GX_CTF_B8:
-    return 2;
-  case GX_CTF_RG8:
-    return 4;
-  case GX_CTF_GB8:
-    return 4;
-
-  case GX_TF_Z8:
-    return 2;
-  case GX_TF_Z16:
-    return 4;
-  case GX_TF_Z24X8:
-    return 8;
-
-  case GX_CTF_Z4:
-    return 1;
-  case GX_CTF_Z8H:
-    return 2;
-  case GX_CTF_Z8M:
-    return 2;
-  case GX_CTF_Z8L:
-    return 2;
-  case GX_CTF_Z16R:
-    return 4;
-  case GX_CTF_Z16L:
+  // Special formats
+  case TextureFormat::XFB:
     return 4;
   default:
-    PanicAlert("Unsupported Texture Format (%08x)! (GetTexelSizeInNibbles)", format);
+    PanicAlert("Invalid Texture Format (0x%X)! (GetTexelSizeInNibbles)", static_cast<int>(format));
     return 1;
   }
 }
 
-int TexDecoder_GetTextureSizeInBytes(int width, int height, int format)
+int TexDecoder_GetTextureSizeInBytes(int width, int height, TextureFormat format)
 {
   return (width * height * TexDecoder_GetTexelSizeInNibbles(format)) / 2;
 }
 
-int TexDecoder_GetBlockWidthInTexels(u32 format)
+int TexDecoder_GetBlockWidthInTexels(TextureFormat format)
 {
   switch (format)
   {
-  case GX_TF_I4:
+  // 4-bit formats
+  case TextureFormat::I4:
+  case TextureFormat::C4:
     return 8;
-  case GX_TF_I8:
+  // 8-bit formats
+  case TextureFormat::I8:
+  case TextureFormat::IA4:
+  case TextureFormat::C8:
     return 8;
-  case GX_TF_IA4:
-    return 8;
-  case GX_TF_IA8:
+  // 16-bit formats
+  case TextureFormat::IA8:
+  case TextureFormat::RGB565:
+  case TextureFormat::RGB5A3:
+  case TextureFormat::C14X2:
     return 4;
-  case GX_TF_RGB565:
+  // 32-bit formats
+  case TextureFormat::RGBA8:
     return 4;
-  case GX_TF_RGB5A3:
-    return 4;
-  case GX_TF_RGBA8:
-    return 4;
-  case GX_TF_C4:
+  // Compressed format
+  case TextureFormat::CMPR:
     return 8;
-  case GX_TF_C8:
-    return 8;
-  case GX_TF_C14X2:
-    return 4;
-  case GX_TF_CMPR:
-    return 8;
-  case GX_CTF_R4:
-    return 8;
-  case GX_CTF_RA4:
-    return 8;
-  case GX_CTF_RA8:
-    return 4;
-  case GX_CTF_A8:
-    return 8;
-  case GX_CTF_R8:
-    return 8;
-  case GX_CTF_G8:
-    return 8;
-  case GX_CTF_B8:
-    return 8;
-  case GX_CTF_RG8:
-    return 4;
-  case GX_CTF_GB8:
-    return 4;
-  case GX_TF_Z8:
-    return 8;
-  case GX_TF_Z16:
-    return 4;
-  case GX_TF_Z24X8:
-    return 4;
-  case GX_CTF_Z4:
-    return 8;
-  case GX_CTF_Z8H:
-    return 8;
-  case GX_CTF_Z8M:
-    return 8;
-  case GX_CTF_Z8L:
-    return 8;
-  case GX_CTF_Z16R:
-    return 4;
-  case GX_CTF_Z16L:
-    return 4;
+  // Special formats
+  case TextureFormat::XFB:
+    return 16;
   default:
-    PanicAlert("Unsupported Texture Format (%08x)! (GetBlockWidthInTexels)", format);
+    PanicAlert("Invalid Texture Format (0x%X)! (GetBlockWidthInTexels)", static_cast<int>(format));
     return 8;
   }
 }
 
-int TexDecoder_GetBlockHeightInTexels(u32 format)
+int TexDecoder_GetBlockHeightInTexels(TextureFormat format)
 {
   switch (format)
   {
-  case GX_TF_I4:
+  // 4-bit formats
+  case TextureFormat::I4:
+  case TextureFormat::C4:
     return 8;
-  case GX_TF_I8:
+  // 8-bit formats
+  case TextureFormat::I8:
+  case TextureFormat::IA4:
+  case TextureFormat::C8:
     return 4;
-  case GX_TF_IA4:
+  // 16-bit formats
+  case TextureFormat::IA8:
+  case TextureFormat::RGB565:
+  case TextureFormat::RGB5A3:
+  case TextureFormat::C14X2:
     return 4;
-  case GX_TF_IA8:
+  // 32-bit formats
+  case TextureFormat::RGBA8:
     return 4;
-  case GX_TF_RGB565:
-    return 4;
-  case GX_TF_RGB5A3:
-    return 4;
-  case GX_TF_RGBA8:
-    return 4;
-  case GX_TF_C4:
+  // Compressed format
+  case TextureFormat::CMPR:
     return 8;
-  case GX_TF_C8:
-    return 4;
-  case GX_TF_C14X2:
-    return 4;
-  case GX_TF_CMPR:
-    return 8;
-  case GX_CTF_R4:
-    return 8;
-  case GX_CTF_RA4:
-    return 4;
-  case GX_CTF_RA8:
-    return 4;
-  case GX_CTF_A8:
-    return 4;
-  case GX_CTF_R8:
-    return 4;
-  case GX_CTF_G8:
-    return 4;
-  case GX_CTF_B8:
-    return 4;
-  case GX_CTF_RG8:
-    return 4;
-  case GX_CTF_GB8:
-    return 4;
-  case GX_TF_Z8:
-    return 4;
-  case GX_TF_Z16:
-    return 4;
-  case GX_TF_Z24X8:
-    return 4;
-  case GX_CTF_Z4:
-    return 8;
-  case GX_CTF_Z8H:
-    return 4;
-  case GX_CTF_Z8M:
-    return 4;
-  case GX_CTF_Z8L:
-    return 4;
-  case GX_CTF_Z16R:
-    return 4;
-  case GX_CTF_Z16L:
-    return 4;
+  // Special formats
+  case TextureFormat::XFB:
+    return 1;
   default:
-    PanicAlert("Unsupported Texture Format (%08x)! (GetBlockHeightInTexels)", format);
+    PanicAlert("Invalid Texture Format (0x%X)! (GetBlockHeightInTexels)", static_cast<int>(format));
+    return 4;
+  }
+}
+
+int TexDecoder_GetEFBCopyBlockWidthInTexels(EFBCopyFormat format)
+{
+  switch (format)
+  {
+  // 4-bit formats
+  case EFBCopyFormat::R4:
+    return 8;
+  // 8-bit formats
+  case EFBCopyFormat::RA4:
+  case EFBCopyFormat::A8:
+  case EFBCopyFormat::R8_0x1:
+  case EFBCopyFormat::R8:
+  case EFBCopyFormat::G8:
+  case EFBCopyFormat::B8:
+    return 8;
+  // 16-bit formats
+  case EFBCopyFormat::RA8:
+  case EFBCopyFormat::RGB565:
+  case EFBCopyFormat::RGB5A3:
+  case EFBCopyFormat::RG8:
+  case EFBCopyFormat::GB8:
+    return 4;
+  // 32-bit formats
+  case EFBCopyFormat::RGBA8:
+    return 4;
+  // Special formats
+  case EFBCopyFormat::XFB:
+    return 16;
+  default:
+    PanicAlert("Invalid EFB Copy Format (0x%X)! (GetEFBCopyBlockWidthInTexels)",
+               static_cast<int>(format));
+    return 8;
+  }
+}
+
+int TexDecoder_GetEFBCopyBlockHeightInTexels(EFBCopyFormat format)
+{
+  switch (format)
+  {
+  // 4-bit formats
+  case EFBCopyFormat::R4:
+    return 8;
+  // 8-bit formats
+  case EFBCopyFormat::RA4:
+  case EFBCopyFormat::A8:
+  case EFBCopyFormat::R8_0x1:
+  case EFBCopyFormat::R8:
+  case EFBCopyFormat::G8:
+  case EFBCopyFormat::B8:
+    return 4;
+  // 16-bit formats
+  case EFBCopyFormat::RA8:
+  case EFBCopyFormat::RGB565:
+  case EFBCopyFormat::RGB5A3:
+  case EFBCopyFormat::RG8:
+  case EFBCopyFormat::GB8:
+    return 4;
+  // 32-bit formats
+  case EFBCopyFormat::RGBA8:
+    return 4;
+  // Special formats
+  case EFBCopyFormat::XFB:
+    return 1;
+  default:
+    PanicAlert("Invalid EFB Copy Format (0x%X)! (GetEFBCopyBlockHeightInTexels)",
+               static_cast<int>(format));
     return 4;
   }
 }
 
 // returns bytes
-int TexDecoder_GetPaletteSize(int format)
+int TexDecoder_GetPaletteSize(TextureFormat format)
 {
   switch (format)
   {
-  case GX_TF_C4:
+  case TextureFormat::C4:
     return 16 * 2;
-  case GX_TF_C8:
+  case TextureFormat::C8:
     return 256 * 2;
-  case GX_TF_C14X2:
+  case TextureFormat::C14X2:
     return 16384 * 2;
   default:
     return 0;
@@ -249,51 +219,35 @@ int TexDecoder_GetPaletteSize(int format)
 // Get the "in memory" texture format of an EFB copy's format.
 // With the exception of c4/c8/c14 paletted texture formats (which are handled elsewhere)
 // this is the format the game should be using when it is drawing an EFB copy back.
-int TexDecoder_GetEfbCopyBaseFormat(int format)
+TextureFormat TexDecoder_GetEFBCopyBaseFormat(EFBCopyFormat format)
 {
   switch (format)
   {
-  case GX_TF_I4:
-  case GX_CTF_Z4:
-  case GX_CTF_R4:
-    return GX_TF_I4;
-  case GX_TF_I8:
-  case GX_CTF_A8:
-  case GX_CTF_R8:
-  case GX_CTF_G8:
-  case GX_CTF_B8:
-  case GX_TF_Z8:
-  case GX_CTF_Z8H:
-  case GX_CTF_Z8M:
-  case GX_CTF_Z8L:
-    return GX_TF_I8;
-  case GX_TF_IA4:
-  case GX_CTF_RA4:
-    return GX_TF_IA4;
-  case GX_TF_IA8:
-  case GX_TF_Z16:
-  case GX_CTF_RA8:
-  case GX_CTF_RG8:
-  case GX_CTF_GB8:
-  case GX_CTF_Z16R:
-  case GX_CTF_Z16L:
-    return GX_TF_IA8;
-  case GX_TF_RGB565:
-    return GX_TF_RGB565;
-  case GX_TF_RGB5A3:
-    return GX_TF_RGB5A3;
-  case GX_TF_RGBA8:
-  case GX_TF_Z24X8:
-  case GX_CTF_YUVA8:
-    return GX_TF_RGBA8;
-  // These formats can't be (directly) generated by EFB copies
-  case GX_TF_C4:
-  case GX_TF_C8:
-  case GX_TF_C14X2:
-  case GX_TF_CMPR:
+  case EFBCopyFormat::R4:
+    return TextureFormat::I4;
+  case EFBCopyFormat::A8:
+  case EFBCopyFormat::R8_0x1:
+  case EFBCopyFormat::R8:
+  case EFBCopyFormat::G8:
+  case EFBCopyFormat::B8:
+    return TextureFormat::I8;
+  case EFBCopyFormat::RA4:
+    return TextureFormat::IA4;
+  case EFBCopyFormat::RA8:
+  case EFBCopyFormat::RG8:
+  case EFBCopyFormat::GB8:
+    return TextureFormat::IA8;
+  case EFBCopyFormat::RGB565:
+    return TextureFormat::RGB565;
+  case EFBCopyFormat::RGB5A3:
+    return TextureFormat::RGB5A3;
+  case EFBCopyFormat::RGBA8:
+    return TextureFormat::RGBA8;
+  case EFBCopyFormat::XFB:
+    return TextureFormat::XFB;
   default:
-    PanicAlert("Unsupported Texture Format (%08x)! (GetEfbCopyBaseFormat)", format);
-    return format & 0xf;
+    PanicAlert("Invalid EFB Copy Format (0x%X)! (GetEFBCopyBaseFormat)", static_cast<int>(format));
+    return static_cast<TextureFormat>(format);
   }
 }
 
@@ -312,13 +266,13 @@ static const char* texfmt[] = {
     "0x1C", "0x1D", "0x1E", "0x1F",
     // pixel + copy
     "CR4", "0x21", "CRA4", "CRA8", "0x24", "0x25", "CYUVA8", "CA8", "CR8", "CG8", "CB8", "CRG8",
-    "CGB8", "0x2D", "0x2E", "0x2F",
+    "CGB8", "0x2D", "0x2E", "XFB",
     // Z + copy
     "CZ4", "0x31", "0x32", "0x33", "0x34", "0x35", "0x36", "0x37", "0x38", "CZ8M", "CZ8L", "0x3B",
     "CZ16L", "0x3D", "0x3E", "0x3F",
 };
 
-static void TexDecoder_DrawOverlay(u8* dst, int width, int height, int texformat)
+static void TexDecoder_DrawOverlay(u8* dst, int width, int height, TextureFormat texformat)
 {
   int w = std::min(width, 40);
   int h = std::min(height, 10);
@@ -332,7 +286,7 @@ static void TexDecoder_DrawOverlay(u8* dst, int width, int height, int texformat
     yoff = 0;
   }
 
-  const char* fmt = texfmt[texformat & 15];
+  const char* fmt = texfmt[static_cast<int>(texformat) & 15];
   while (*fmt)
   {
     int xcnt = 0;
@@ -361,8 +315,8 @@ static void TexDecoder_DrawOverlay(u8* dst, int width, int height, int texformat
   }
 }
 
-void TexDecoder_Decode(u8* dst, const u8* src, int width, int height, int texformat, const u8* tlut,
-                       TlutFormat tlutfmt)
+void TexDecoder_Decode(u8* dst, const u8* src, int width, int height, TextureFormat texformat,
+                       const u8* tlut, TLUTFormat tlutfmt)
 {
   _TexDecoder_DecodeImpl((u32*)dst, src, width, height, texformat, tlut, tlutfmt);
 
@@ -407,35 +361,23 @@ static inline u32 DecodePixel_RGB5A3(u16 val)
   return r | (g << 8) | (b << 16) | (a << 24);
 }
 
-static inline u32 DecodePixel_Paletted(u16 pixel, TlutFormat tlutfmt)
+static inline u32 DecodePixel_Paletted(u16 pixel, TLUTFormat tlutfmt)
 {
   switch (tlutfmt)
   {
-  case GX_TL_IA8:
+  case TLUTFormat::IA8:
     return DecodePixel_IA8(pixel);
-  case GX_TL_RGB565:
+  case TLUTFormat::RGB565:
     return DecodePixel_RGB565(Common::swap16(pixel));
-  case GX_TL_RGB5A3:
+  case TLUTFormat::RGB5A3:
     return DecodePixel_RGB5A3(Common::swap16(pixel));
   default:
     return 0;
   }
 }
 
-struct DXTBlock
-{
-  u16 color1;
-  u16 color2;
-  u8 lines[4];
-};
-
-static inline u32 MakeRGBA(int r, int g, int b, int a)
-{
-  return (a << 24) | (b << 16) | (g << 8) | r;
-}
-
-void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth, int texformat,
-                            const u8* tlut_, TlutFormat tlutfmt)
+void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth,
+                            TextureFormat texformat, const u8* tlut_, TLUTFormat tlutfmt)
 {
   /* General formula for computing texture offset
   //
@@ -450,7 +392,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
 
   switch (texformat)
   {
-  case GX_TF_C4:
+  case TextureFormat::C4:
   {
     u16 sBlk = s >> 3;
     u16 tBlk = t >> 3;
@@ -469,7 +411,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     *((u32*)dst) = DecodePixel_Paletted(tlut[val], tlutfmt);
   }
   break;
-  case GX_TF_I4:
+  case TextureFormat::I4:
   {
     u16 sBlk = s >> 3;
     u16 tBlk = t >> 3;
@@ -490,7 +432,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     dst[3] = val;
   }
   break;
-  case GX_TF_I8:
+  case TextureFormat::I8:
   {
     u16 sBlk = s >> 3;
     u16 tBlk = t >> 2;
@@ -507,7 +449,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     dst[3] = val;
   }
   break;
-  case GX_TF_C8:
+  case TextureFormat::C8:
   {
     u16 sBlk = s >> 3;
     u16 tBlk = t >> 2;
@@ -523,7 +465,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     *((u32*)dst) = DecodePixel_Paletted(tlut[val], tlutfmt);
   }
   break;
-  case GX_TF_IA4:
+  case TextureFormat::IA4:
   {
     u16 sBlk = s >> 3;
     u16 tBlk = t >> 2;
@@ -542,7 +484,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     dst[3] = a;
   }
   break;
-  case GX_TF_IA8:
+  case TextureFormat::IA8:
   {
     u16 sBlk = s >> 2;
     u16 tBlk = t >> 2;
@@ -558,7 +500,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     *((u32*)dst) = DecodePixel_IA8(*valAddr);
   }
   break;
-  case GX_TF_C14X2:
+  case TextureFormat::C14X2:
   {
     u16 sBlk = s >> 2;
     u16 tBlk = t >> 2;
@@ -577,7 +519,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     *((u32*)dst) = DecodePixel_Paletted(tlut[val], tlutfmt);
   }
   break;
-  case GX_TF_RGB565:
+  case TextureFormat::RGB565:
   {
     u16 sBlk = s >> 2;
     u16 tBlk = t >> 2;
@@ -593,7 +535,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     *((u32*)dst) = DecodePixel_RGB565(Common::swap16(*valAddr));
   }
   break;
-  case GX_TF_RGB5A3:
+  case TextureFormat::RGB5A3:
   {
     u16 sBlk = s >> 2;
     u16 tBlk = t >> 2;
@@ -609,7 +551,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     *((u32*)dst) = DecodePixel_RGB5A3(Common::swap16(*valAddr));
   }
   break;
-  case GX_TF_RGBA8:
+  case TextureFormat::RGBA8:
   {
     u16 sBlk = s >> 2;
     u16 tBlk = t >> 2;
@@ -628,7 +570,7 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     dst[2] = valAddr[33];
   }
   break;
-  case GX_TF_CMPR:
+  case TextureFormat::CMPR:
   {
     u16 sDxt = s >> 2;
     u16 tDxt = t >> 2;
@@ -654,11 +596,6 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     int red1 = Convert5To8((c1 >> 11) & 0x1F);
     int red2 = Convert5To8((c2 >> 11) & 0x1F);
 
-    // Approximation of x/3: 3/8 (1/2 - 1/8)
-    int blue3 = ((blue2 - blue1) >> 1) - ((blue2 - blue1) >> 3);
-    int green3 = ((green2 - green1) >> 1) - ((green2 - green1) >> 3);
-    int red3 = ((red2 - red1) >> 1) - ((red2 - red1) >> 3);
-
     u16 ss = s & 3;
     u16 tt = t & 3;
 
@@ -680,20 +617,18 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
       color = MakeRGBA(red2, green2, blue2, 255);
       break;
     case 2:
-      color = MakeRGBA(red1 + red3, green1 + green3, blue1 + blue3, 255);
+      color = MakeRGBA(DXTBlend(red2, red1), DXTBlend(green2, green1), DXTBlend(blue2, blue1), 255);
       break;
     case 3:
-      color = MakeRGBA(red2 - red3, green2 - green3, blue2 - blue3, 255);
+      color = MakeRGBA(DXTBlend(red1, red2), DXTBlend(green1, green2), DXTBlend(blue1, blue2), 255);
       break;
     case 6:
-      color =
-          MakeRGBA((red1 + red2 + 1) / 2, (green1 + green2 + 1) / 2, (blue1 + blue2 + 1) / 2, 255);
+      color = MakeRGBA((red1 + red2) / 2, (green1 + green2) / 2, (blue1 + blue2) / 2, 255);
       break;
     case 7:
       // color[3] is the same as color[2] (average of both colors), but transparent.
       // This differs from DXT1 where color[3] is transparent black.
-      color =
-          MakeRGBA((red1 + red2 + 1) / 2, (green1 + green2 + 1) / 2, (blue1 + blue2 + 1) / 2, 0);
+      color = MakeRGBA((red1 + red2) / 2, (green1 + green2) / 2, (blue1 + blue2) / 2, 0);
       break;
     default:
       color = 0;
@@ -701,6 +636,23 @@ void TexDecoder_DecodeTexel(u8* dst, const u8* src, int s, int t, int imageWidth
     }
 
     *((u32*)dst) = color;
+  }
+  break;
+  case TextureFormat::XFB:
+  {
+    size_t offset = (t * imageWidth + (s & (~1))) * 2;
+
+    // We do this one color sample (aka 2 RGB pixles) at a time
+    int Y = int((s & 1) == 0 ? src[offset] : src[offset + 2]) - 16;
+    int U = int(src[offset + 1]) - 128;
+    int V = int(src[offset + 3]) - 128;
+
+    // We do the inverse BT.601 conversion for YCbCr to RGB
+    // http://www.equasys.de/colorconversion.html#YCbCr-RGBColorFormatConversion
+    u8 R = MathUtil::Clamp(int(1.164f * Y + 1.596f * V), 0, 255);
+    u8 G = MathUtil::Clamp(int(1.164f * Y - 0.392f * U - 0.813f * V), 0, 255);
+    u8 B = MathUtil::Clamp(int(1.164f * Y + 2.017f * U), 0, 255);
+    dst[t * imageWidth + s] = 0xff000000 | B << 16 | G << 8 | R;
   }
   break;
   }

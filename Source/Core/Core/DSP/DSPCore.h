@@ -16,6 +16,8 @@
 
 namespace DSP
 {
+class Accelerator;
+
 namespace JIT
 {
 namespace x86
@@ -161,11 +163,12 @@ enum : u32
   DSP_CMBL = 0xff   // CPU Mailbox L
 };
 
-// Stacks
-enum : int
+enum class StackRegister
 {
-  DSP_STACK_C,
-  DSP_STACK_D
+  Call,
+  Data,
+  LoopAddress,
+  LoopCounter
 };
 
 // cr (Not g_dsp.r[CR]) bits
@@ -225,7 +228,8 @@ struct DSP_Regs
   u16 cr;
   u16 sr;
 
-  union {
+  union
+  {
     u64 val;
     struct
     {
@@ -236,7 +240,8 @@ struct DSP_Regs
     };
   } prod;
 
-  union {
+  union
+  {
     u32 val;
     struct
     {
@@ -245,7 +250,8 @@ struct DSP_Regs
     };
   } ax[2];
 
-  union {
+  union
+  {
     u64 val;
     struct
     {
@@ -295,6 +301,8 @@ struct SDSP
   // Accelerator / DMA / other hardware registers. Not GPRs.
   std::array<u16, 256> ifx_regs;
 
+  std::unique_ptr<Accelerator> accelerator;
+
   // When state saving, all of the above can just be memcpy'd into the save state.
   // The below needs special handling.
   u16* iram;
@@ -308,7 +316,6 @@ struct SDSP
 
 extern SDSP g_dsp;
 extern DSPBreakpoints g_dsp_breakpoints;
-extern u16 g_cycles_left;
 extern bool g_init_hax;
 extern std::unique_ptr<JIT::x86::DSPEmitter> g_dsp_jit;
 extern std::unique_ptr<DSPCaptureLogger> g_dsp_cap;
@@ -351,20 +358,18 @@ void DSPCore_SetExternalInterrupt(bool val);
 // sets a flag in the pending exception register.
 void DSPCore_SetException(u8 level);
 
-void CompileCurrent();
-
-enum DSPCoreState
+enum class State
 {
-  DSPCORE_STOP = 0,
-  DSPCORE_RUNNING,
-  DSPCORE_STEPPING,
+  Stopped,
+  Running,
+  Stepping,
 };
 
 int DSPCore_RunCycles(int cycles);
 
 // These are meant to be called from the UI thread.
-void DSPCore_SetState(DSPCoreState new_state);
-DSPCoreState DSPCore_GetState();
+void DSPCore_SetState(State new_state);
+State DSPCore_GetState();
 
 void DSPCore_Step();
 

@@ -42,11 +42,19 @@ private:
   wxMenu* CreateHelpMenu() const;
 
   void OnPopulatePerspectivesMenu(PopulatePerspectivesEvent&);
+  void OnUpdateWiiMenuTool(wxCommandEvent&);
 
   void RefreshMenuLabels() const;
   void RefreshPlayMenuLabel() const;
   void RefreshSaveStateMenuLabels() const;
+  void RefreshWiiToolsLabels() const;
   void RefreshWiiSystemMenuLabel() const;
+  enum class UpdateMenuMode
+  {
+    CurrentRegionOnly,
+    SpecificRegionsOnly,
+  };
+  void EnableUpdateMenu(UpdateMenuMode mode) const;
 
   void ClearSavedPerspectivesMenu() const;
   void PopulateSavedPerspectivesMenu(const std::vector<std::string>& label_names) const;

@@ -6,6 +6,10 @@
 
 #pragma once
 
+#include <array>
+#include <cstddef>
+#include <string>
+
 #include "Core/DSP/DSPCommon.h"
 #include "Core/DSP/Jit/DSPEmitter.h"
 
@@ -35,10 +39,10 @@ enum partype_t
   P_REG19 = P_REG | 0x1900,
   P_REGM19 = P_REG | 0x1910,  // used in multiply instructions
   P_REG1A = P_REG | 0x1a80,
-  P_REG1C = P_REG | 0x1c00,
   // P_ACC       = P_REG | 0x1c10, // used for global accum (gcdsptool's value)
-  P_ACCL = P_REG | 0x1c00,  // used for low part of accum
-  P_ACCM = P_REG | 0x1e00,  // used for mid part of accum
+  P_ACCL = P_REG | 0x1c00,   // used for low part of accum
+  P_REG1C = P_REG | 0x1c10,  // gcdsptool calls this P_ACCLM
+  P_ACCM = P_REG | 0x1e00,   // used for mid part of accum
   // The following are not in gcdsptool
   P_ACCM_D = P_REG | 0x1e80,
   P_ACC = P_REG | 0x2000,  // used for full accum.
@@ -52,9 +56,6 @@ enum partype_t
   // P_REG10     = P_REG | 0x1000,
   // P_AX_D      = P_REG | 0x2280,
 };
-
-#define OPTABLE_SIZE 0xffff + 1
-#define EXT_OPTABLE_SIZE 0xff + 1
 
 struct param2_t
 {
@@ -90,18 +91,11 @@ struct DSPOPCTemplate
 typedef DSPOPCTemplate opc_t;
 
 // Opcodes
-extern const DSPOPCTemplate opcodes[];
-extern const int opcodes_size;
-extern const DSPOPCTemplate opcodes_ext[];
-extern const int opcodes_ext_size;
 extern const DSPOPCTemplate cw;
 
-#define WRITEBACKLOGSIZE 5
-
-extern const DSPOPCTemplate* opTable[OPTABLE_SIZE];
-extern const DSPOPCTemplate* extOpTable[EXT_OPTABLE_SIZE];
-extern u16 writeBackLog[WRITEBACKLOGSIZE];
-extern int writeBackLogIdx[WRITEBACKLOGSIZE];
+constexpr size_t WRITEBACK_LOG_SIZE = 5;
+extern std::array<u16, WRITEBACK_LOG_SIZE> writeBackLog;
+extern std::array<int, WRITEBACK_LOG_SIZE> writeBackLogIdx;
 
 // Predefined labels
 struct pdlabel_t
@@ -111,9 +105,8 @@ struct pdlabel_t
   const char* description;
 };
 
-extern const pdlabel_t regnames[];
-extern const pdlabel_t pdlabels[];
-extern const u32 pdlabels_size;
+extern const std::array<pdlabel_t, 36> regnames;
+extern const std::array<pdlabel_t, 96> pdlabels;
 
 const char* pdname(u16 val);
 const char* pdregname(int val);
@@ -124,5 +117,14 @@ void applyWriteBackLog();
 void zeroWriteBackLog();
 void zeroWriteBackLogPreserveAcc(u8 acc);
 
-const DSPOPCTemplate* GetOpTemplate(const UDSPInstruction& inst);
+// Used by the assembler and disassembler for info retrieval.
+const DSPOPCTemplate* FindOpInfoByOpcode(UDSPInstruction opcode);
+const DSPOPCTemplate* FindOpInfoByName(const std::string& name);
+
+const DSPOPCTemplate* FindExtOpInfoByOpcode(UDSPInstruction opcode);
+const DSPOPCTemplate* FindExtOpInfoByName(const std::string& name);
+
+// Used by the interpreter and JIT for instruction emulation
+const DSPOPCTemplate* GetOpTemplate(UDSPInstruction inst);
+const DSPOPCTemplate* GetExtOpTemplate(UDSPInstruction inst);
 }  // namespace DSP
