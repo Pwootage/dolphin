@@ -5,7 +5,6 @@
 
 // This file is a big hack that lets me dump information from Prime every frame.
 // For the moment, this is all hard-coded to look for Prime 1 or 2 stuff.
-
 #include <thread>
 #include <mutex>
 #include <deque>
@@ -14,14 +13,15 @@
 #include "SFML/Network.hpp"
 #include "Common/MsgHandler.h"
 #include "PrimeMemoryDumping.h"
-#include "prime1/Prime1JsonDumper.hpp"
-#include "json.hpp"
+#include "../PrimeMemoryDumping/prime1/Prime1JsonDumper.hpp"
+#include "../PrimeMemoryDumping/common/json.hpp"
 
 #ifdef SFML_SYSTEM_WINDOWS
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
 #endif
+
 
 using namespace std;
 using namespace nlohmann;

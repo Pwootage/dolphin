@@ -163,8 +163,23 @@
     <Filter Include="HW %28Flipper/Hollywood%29\WiimoteCommon">
       <UniqueIdentifier>{ee6645da-3ad9-4fe7-809f-e4646d0b0ca5}</UniqueIdentifier>
     </Filter>
+    <Filter Include="PrimeMemoryDumpingDolphin">
+      <UniqueIdentifier>{879289cc-ffb4-432f-94cf-76f95c1556c9}</UniqueIdentifier>
+    </Filter>
     <Filter Include="PrimeMemoryDumping">
-      <UniqueIdentifier>{b23b8144-85bb-428a-8441-b1a7f64665aa}</UniqueIdentifier>
+      <UniqueIdentifier>{7e5dcc5b-b5fe-4fd0-8da1-c554cacfe591}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="PrimeMemoryDumping\prime1">
+      <UniqueIdentifier>{0e8bd658-29bd-41ae-b739-05cd9142e669}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="PrimeMemoryDumping\prime1\actors">
+      <UniqueIdentifier>{10be5d20-2023-49f7-8e32-cee108b239ca}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="PrimeMemoryDumping\prime1\rstl">
+      <UniqueIdentifier>{fc9c3d64-2d5c-4a60-ace7-185811d12e14}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="PrimeMemoryDumping\common">
+      <UniqueIdentifier>{22db6f8b-e6dd-4386-9e9c-a0599b6879fb}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -700,9 +715,6 @@
       <Filter>PowerPC\Jit64Common</Filter>
     </ClCompile>
     <ClCompile Include="Analytics.cpp" />
-    <ClCompile Include="PrimeMemoryDumping\PrimeMemoryDumping.cpp">
-      <Filter>PrimeMemoryDumping</Filter>
-    </ClCompile>
     <ClCompile Include="PowerPC\SignatureDB\CSVSignatureDB.cpp">
       <Filter>PowerPC\SignatureDB</Filter>
     </ClCompile>
@@ -894,6 +906,21 @@
     </ClCompile>
     <ClCompile Include="IOS\Network\NCD\WiiNetConfig.cpp">
       <Filter>IOS\Network\NCD</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimeMemoryDumpingDolphin\GameMemory.cpp">
+      <Filter>PrimeMemoryDumpingDolphin</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimeMemoryDumpingDolphin\PrimeMemoryDumping.cpp">
+      <Filter>PrimeMemoryDumpingDolphin</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimeMemoryDumping\prime1\Prime1ConsoleDumper.cpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimeMemoryDumping\prime1\Prime1JsonDumper.cpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClCompile>
+    <ClCompile Include="PrimeMemoryDumping\common\MemoryBuffer.cpp">
+      <Filter>PrimeMemoryDumping\common</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -1373,9 +1400,6 @@
       <Filter>PowerPC\Jit64Common</Filter>
     </ClInclude>
     <ClInclude Include="Analytics.h" />
-    <ClInclude Include="PrimeMemoryDumping\PrimeMemoryDumping.h">
-      <Filter>PrimeMemoryDumping</Filter>
-    </ClInclude>
     <ClInclude Include="PowerPC\SignatureDB\CSVSignatureDB.h">
       <Filter>PowerPC\SignatureDB</Filter>
     </ClInclude>
@@ -1568,8 +1592,131 @@
     <ClInclude Include="HW\WiimoteCommon\WiimoteReport.h">
       <Filter>HW %28Flipper/Hollywood%29\WiimoteCommon</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="CMakeLists.txt" />
+    <ClInclude Include="PrimeMemoryDumpingDolphin\PrimeMemoryDumping.h">
+      <Filter>PrimeMemoryDumpingDolphin</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CAABB.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CAABBPrimitive.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CBallCamera.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CCameraManager.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CFirstPersonCamera.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CGameAllocator.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CGameGlobalObjects.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CGameState.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CHealthInfo.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CMatrix4f.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CObjectList.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CObjectReference.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CPair.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CPlayerCameraBob.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CPlayerState.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CQuaternion.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CRandom16.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CRBTree.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CReservedVector.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CSimplePool.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CSpherePrimitive.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CStateManager.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CTransform.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CVector.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CVector3f.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\CWorld.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\Prime1ConsoleDumper.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\Prime1JsonDumper.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\SObjectTag.hpp">
+      <Filter>PrimeMemoryDumping\prime1</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\actors\CActor.hpp">
+      <Filter>PrimeMemoryDumping\prime1\actors</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\actors\CEntity.hpp">
+      <Filter>PrimeMemoryDumping\prime1\actors</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\actors\CGameCamera.hpp">
+      <Filter>PrimeMemoryDumping\prime1\actors</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\actors\CMorphBall.hpp">
+      <Filter>PrimeMemoryDumping\prime1\actors</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\actors\CPhysicsActor.hpp">
+      <Filter>PrimeMemoryDumping\prime1\actors</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\actors\CPlayer.hpp">
+      <Filter>PrimeMemoryDumping\prime1\actors</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\actors\CPlayerGun.hpp">
+      <Filter>PrimeMemoryDumping\prime1\actors</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\prime1\rstl\rstl_string.hpp">
+      <Filter>PrimeMemoryDumping\prime1\rstl</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\common\game_value.h">
+      <Filter>PrimeMemoryDumping\common</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\common\GameMemory.h">
+      <Filter>PrimeMemoryDumping\common</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\common\json.hpp">
+      <Filter>PrimeMemoryDumping\common</Filter>
+    </ClInclude>
+    <ClInclude Include="PrimeMemoryDumping\common\MemoryBuffer.hpp">
+      <Filter>PrimeMemoryDumping\common</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

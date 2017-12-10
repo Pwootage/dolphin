@@ -5,6 +5,8 @@
 
 #pragma once
 
+#define PRIME_DUMP_JSON true
+
 #include "Common/CommonTypes.h"
 
 namespace PrimeMemoryDumping {

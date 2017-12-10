@@ -1,6 +1,6 @@
 #include <cstdint>
 #include <Core/PowerPC/PowerPC.h>
-#include "GameMemory.h"
+#include "../PrimeMemoryDumping/common/GameMemory.h"
 
 namespace GameMemory {
     uint64_t read_u64(uint32_t address) {
