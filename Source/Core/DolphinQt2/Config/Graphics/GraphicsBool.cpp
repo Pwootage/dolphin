@@ -5,6 +5,7 @@
 #include "DolphinQt2/Config/Graphics/GraphicsBool.h"
 
 #include "Common/Config/Config.h"
+
 #include "DolphinQt2/Settings.h"
 
 #include <QFont>
@@ -20,6 +21,10 @@ GraphicsBool::GraphicsBool(const QString& label, const Config::ConfigInfo<bool>&
     QFont bf = font();
     bf.setBold(Config::GetActiveLayerForConfig(m_setting) != Config::LayerType::Base);
     setFont(bf);
+
+    bool old = blockSignals(true);
+    setChecked(Config::Get(m_setting) ^ m_reverse);
+    blockSignals(old);
   });
 }
 

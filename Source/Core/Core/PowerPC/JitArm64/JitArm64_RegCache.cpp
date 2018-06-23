@@ -57,16 +57,16 @@ u32 Arm64RegCache::GetUnlockedRegisterCount()
 void Arm64RegCache::LockRegister(ARM64Reg host_reg)
 {
   auto reg = std::find(m_host_registers.begin(), m_host_registers.end(), host_reg);
-  _assert_msg_(DYNA_REC, reg != m_host_registers.end(),
-               "Don't try locking a register that isn't in the cache. Reg %d", host_reg);
+  ASSERT_MSG(DYNA_REC, reg != m_host_registers.end(),
+             "Don't try locking a register that isn't in the cache. Reg %d", host_reg);
   reg->Lock();
 }
 
 void Arm64RegCache::UnlockRegister(ARM64Reg host_reg)
 {
   auto reg = std::find(m_host_registers.begin(), m_host_registers.end(), host_reg);
-  _assert_msg_(DYNA_REC, reg != m_host_registers.end(),
-               "Don't try unlocking a register that isn't in the cache. Reg %d", host_reg);
+  ASSERT_MSG(DYNA_REC, reg != m_host_registers.end(),
+             "Don't try unlocking a register that isn't in the cache. Reg %d", host_reg);
   reg->Unlock();
 }
 
@@ -108,7 +108,17 @@ void Arm64GPRCache::Start(PPCAnalyst::BlockRegStats& stats)
 bool Arm64GPRCache::IsCalleeSaved(ARM64Reg reg)
 {
   static constexpr std::array<ARM64Reg, 11> callee_regs{{
-      X28, X27, X26, X25, X24, X23, X22, X21, X20, X19, INVALID_REG,
+      X28,
+      X27,
+      X26,
+      X25,
+      X24,
+      X23,
+      X22,
+      X21,
+      X20,
+      X19,
+      INVALID_REG,
   }};
 
   return std::find(callee_regs.begin(), callee_regs.end(), EncodeRegTo64(reg)) != callee_regs.end();
@@ -116,19 +126,19 @@ bool Arm64GPRCache::IsCalleeSaved(ARM64Reg reg)
 
 const OpArg& Arm64GPRCache::GetGuestGPROpArg(size_t preg) const
 {
-  _assert_(preg < GUEST_GPR_COUNT);
+  ASSERT(preg < GUEST_GPR_COUNT);
   return m_guest_registers[preg];
 }
 
 Arm64GPRCache::GuestRegInfo Arm64GPRCache::GetGuestGPR(size_t preg)
 {
-  _assert_(preg < GUEST_GPR_COUNT);
+  ASSERT(preg < GUEST_GPR_COUNT);
   return {32, PPCSTATE_OFF(gpr[preg]), m_guest_registers[GUEST_GPR_OFFSET + preg]};
 }
 
 Arm64GPRCache::GuestRegInfo Arm64GPRCache::GetGuestCR(size_t preg)
 {
-  _assert_(preg < GUEST_CR_COUNT);
+  ASSERT(preg < GUEST_CR_COUNT);
   return {64, PPCSTATE_OFF(cr_val[preg]), m_guest_registers[GUEST_CR_OFFSET + preg]};
 }
 
@@ -138,7 +148,7 @@ Arm64GPRCache::GuestRegInfo Arm64GPRCache::GetGuestByIndex(size_t index)
     return GetGuestGPR(index - GUEST_GPR_OFFSET);
   if (index >= GUEST_CR_OFFSET && index < GUEST_CR_OFFSET + GUEST_CR_COUNT)
     return GetGuestCR(index - GUEST_CR_OFFSET);
-  _assert_msg_(DYNA_REC, false, "Invalid index for guest register");
+  ASSERT_MSG(DYNA_REC, false, "Invalid index for guest register");
 }
 
 void Arm64GPRCache::FlushRegister(size_t index, bool maintain_state)
@@ -317,10 +327,37 @@ void Arm64GPRCache::GetAllocationOrder()
   // Callee saved registers first in hopes that we will keep everything stored there first
   static constexpr std::array<ARM64Reg, 29> allocation_order{{
       // Callee saved
-      W27, W26, W25, W24, W23, W22, W21, W20, W19,
+      W27,
+      W26,
+      W25,
+      W24,
+      W23,
+      W22,
+      W21,
+      W20,
+      W19,
 
       // Caller saved
-      W18, W17, W16, W15, W14, W13, W12, W11, W10, W9, W8, W7, W6, W5, W4, W3, W2, W1, W0, W30,
+      W18,
+      W17,
+      W16,
+      W15,
+      W14,
+      W13,
+      W12,
+      W11,
+      W10,
+      W9,
+      W8,
+      W7,
+      W6,
+      W5,
+      W4,
+      W3,
+      W2,
+      W1,
+      W0,
+      W30,
   }};
 
   for (ARM64Reg reg : allocation_order)
@@ -474,7 +511,7 @@ ARM64Reg Arm64FPRCache::R(size_t preg, RegType type)
     return host_reg;
   }
   default:
-    _dbg_assert_msg_(DYNA_REC, false, "Invalid OpArg Type!");
+    DEBUG_ASSERT_MSG(DYNA_REC, false, "Invalid OpArg Type!");
     break;
   }
   // We've got an issue if we end up here
@@ -545,11 +582,40 @@ void Arm64FPRCache::GetAllocationOrder()
 {
   static constexpr std::array<ARM64Reg, 32> allocation_order{{
       // Callee saved
-      Q8, Q9, Q10, Q11, Q12, Q13, Q14, Q15,
+      Q8,
+      Q9,
+      Q10,
+      Q11,
+      Q12,
+      Q13,
+      Q14,
+      Q15,
 
       // Caller saved
-      Q16, Q17, Q18, Q19, Q20, Q21, Q22, Q23, Q24, Q25, Q26, Q27, Q28, Q29, Q30, Q31, Q7, Q6, Q5,
-      Q4, Q3, Q2, Q1, Q0,
+      Q16,
+      Q17,
+      Q18,
+      Q19,
+      Q20,
+      Q21,
+      Q22,
+      Q23,
+      Q24,
+      Q25,
+      Q26,
+      Q27,
+      Q28,
+      Q29,
+      Q30,
+      Q31,
+      Q7,
+      Q6,
+      Q5,
+      Q4,
+      Q3,
+      Q2,
+      Q1,
+      Q0,
   }};
 
   for (ARM64Reg reg : allocation_order)
@@ -574,7 +640,15 @@ void Arm64FPRCache::FlushByHost(ARM64Reg host_reg)
 bool Arm64FPRCache::IsCalleeSaved(ARM64Reg reg)
 {
   static constexpr std::array<ARM64Reg, 9> callee_regs{{
-      Q8, Q9, Q10, Q11, Q12, Q13, Q14, Q15, INVALID_REG,
+      Q8,
+      Q9,
+      Q10,
+      Q11,
+      Q12,
+      Q13,
+      Q14,
+      Q15,
+      INVALID_REG,
   }};
 
   return std::find(callee_regs.begin(), callee_regs.end(), reg) != callee_regs.end();

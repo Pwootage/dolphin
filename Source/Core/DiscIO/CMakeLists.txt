@@ -1,4 +1,4 @@
-set(SRCS
+add_library(discio
   Blob.cpp
   CISOBlob.cpp
   WbfsBlob.cpp
@@ -22,4 +22,7 @@ set(SRCS
   WiiWad.cpp
 )
 
-add_dolphin_library(discio "${SRCS}" "")
+target_link_libraries(discio
+PRIVATE
+  ZLIB::ZLIB
+)

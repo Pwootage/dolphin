@@ -4,10 +4,6 @@
 
 #include "DolphinQt2/NetPlay/NetPlaySetupDialog.h"
 
-#include "Core/Config/NetplaySettings.h"
-#include "DolphinQt2/GameList/GameListModel.h"
-#include "DolphinQt2/Settings.h"
-
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -17,14 +13,19 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QSettings>
 #include <QSpinBox>
 #include <QTabWidget>
+
+#include "Core/Config/NetplaySettings.h"
+
+#include "DolphinQt2/GameList/GameListModel.h"
+#include "DolphinQt2/Settings.h"
 
 NetPlaySetupDialog::NetPlaySetupDialog(QWidget* parent)
     : QDialog(parent), m_game_list_model(Settings::Instance().GetGameListModel())
 {
-  setWindowTitle(tr("Dolphin NetPlay Setup"));
+  setWindowTitle(tr("NetPlay Setup"));
+  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
   CreateMainLayout();
 
@@ -50,7 +51,7 @@ NetPlaySetupDialog::NetPlaySetupDialog(QWidget* parent)
 
   OnConnectionTypeChanged(m_connection_type->currentIndex());
 
-  int selected_game = QSettings().value(QStringLiteral("netplay/hostgame"), 0).toInt();
+  int selected_game = Settings::GetQSettings().value(QStringLiteral("netplay/hostgame"), 0).toInt();
 
   if (selected_game >= m_host_games->count())
     selected_game = 0;
@@ -160,7 +161,9 @@ void NetPlaySetupDialog::ConnectWidgets()
   connect(m_host_port_box, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), this,
           &NetPlaySetupDialog::SaveSettings);
   connect(m_host_games, static_cast<void (QListWidget::*)(int)>(&QListWidget::currentRowChanged),
-          [](int index) { QSettings().setValue(QStringLiteral("netplay/hostgame"), index); });
+          [](int index) {
+            Settings::GetQSettings().setValue(QStringLiteral("netplay/hostgame"), index);
+          });
   connect(m_host_force_port_check, &QCheckBox::toggled,
           [this](int value) { m_host_force_port_box->setEnabled(value); });
 #ifdef USE_UPNP
@@ -245,7 +248,7 @@ void NetPlaySetupDialog::PopulateGameList()
   m_host_games->clear();
   for (int i = 0; i < m_game_list_model->rowCount(QModelIndex()); i++)
   {
-    auto title = m_game_list_model->GetUniqueID(i);
+    auto title = m_game_list_model->GetUniqueIdentifier(i);
     auto path = m_game_list_model->GetPath(i);
 
     auto* item = new QListWidgetItem(title);

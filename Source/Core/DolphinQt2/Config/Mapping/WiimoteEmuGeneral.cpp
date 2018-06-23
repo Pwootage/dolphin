@@ -2,18 +2,21 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinQt2/Config/Mapping/WiimoteEmuGeneral.h"
+
 #include <QComboBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 
-#include "DolphinQt2/Config/Mapping/WiimoteEmuGeneral.h"
-
 #include "Core/HW/Wiimote.h"
 #include "Core/HW/WiimoteEmu/WiimoteEmu.h"
+
 #include "DolphinQt2/Config/Mapping/WiimoteEmuExtension.h"
+
 #include "InputCommon/ControllerEmu/ControlGroup/Extension.h"
+#include "InputCommon/ControllerEmu/Setting/BooleanSetting.h"
 #include "InputCommon/InputConfig.h"
 
 WiimoteEmuGeneral::WiimoteEmuGeneral(MappingWindow* window, WiimoteEmuExtension* extension)
@@ -54,10 +57,11 @@ void WiimoteEmuGeneral::CreateMainLayout()
   vbox_layout->addWidget(extension);
   vbox_layout->addWidget(CreateGroupBox(
       tr("Rumble"), Wiimote::GetWiimoteGroup(GetPort(), WiimoteEmu::WiimoteGroup::Rumble)));
+
   vbox_layout->addWidget(CreateGroupBox(
       tr("Options"), Wiimote::GetWiimoteGroup(GetPort(), WiimoteEmu::WiimoteGroup::Options)));
 
-  m_main_layout->addItem(vbox_layout);
+  m_main_layout->addLayout(vbox_layout);
 
   setLayout(m_main_layout);
 }

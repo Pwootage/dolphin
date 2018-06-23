@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Common/Assert.h"
+#include "Common/BitUtils.h"
 #include "Common/CPUDetect.h"
 #include "Common/CommonTypes.h"
 #include "Common/MathUtil.h"
@@ -142,7 +143,7 @@ void Jit64::FinalizeCarryOverflow(bool oe, bool inv)
 // LT/GT either.
 void Jit64::ComputeRC(const OpArg& arg, bool needs_test, bool needs_sext)
 {
-  _assert_msg_(DYNA_REC, arg.IsSimpleReg() || arg.IsImm(), "Invalid ComputeRC operand");
+  ASSERT_MSG(DYNA_REC, arg.IsSimpleReg() || arg.IsImm(), "Invalid ComputeRC operand");
   if (arg.IsImm())
   {
     MOV(64, PPCSTATE(cr_val[0]), Imm32(arg.SImm32()));
@@ -269,7 +270,7 @@ void Jit64::regimmop(int d, int a, bool binary, u32 value, Operation doop,
   }
   else
   {
-    _assert_msg_(DYNA_REC, 0, "WTF regimmop");
+    ASSERT_MSG(DYNA_REC, 0, "WTF regimmop");
   }
   if (Rc)
     ComputeRC(gpr.R(d), needs_test, doop != And || (value & 0x80000000));
@@ -304,18 +305,21 @@ void Jit64::reg_imm(UGeckoInstruction inst)
   case 15:  // addis
     regimmop(d, a, false, (u32)inst.SIMM_16 << 16, Add, &XEmitter::ADD);
     break;
-  case 24:                                               // ori
-    if (a == 0 && s == 0 && inst.UIMM == 0 && !inst.Rc)  // check for nop
+  case 24:  // ori
+  case 25:  // oris
+  {
+    // check for nop
+    if (a == s && inst.UIMM == 0)
     {
       // Make the nop visible in the generated code. not much use but interesting if we see one.
       NOP();
       return;
     }
-    regimmop(a, s, true, inst.UIMM, Or, &XEmitter::OR);
+
+    const u32 immediate = inst.OPCD == 24 ? inst.UIMM : inst.UIMM << 16;
+    regimmop(a, s, true, immediate, Or, &XEmitter::OR);
     break;
-  case 25:  // oris
-    regimmop(a, s, true, inst.UIMM << 16, Or, &XEmitter::OR, false);
-    break;
+  }
   case 28:  // andi
     regimmop(a, s, true, inst.UIMM, And, &XEmitter::AND, true);
     break;
@@ -323,11 +327,19 @@ void Jit64::reg_imm(UGeckoInstruction inst)
     regimmop(a, s, true, inst.UIMM << 16, And, &XEmitter::AND, true);
     break;
   case 26:  // xori
-    regimmop(a, s, true, inst.UIMM, Xor, &XEmitter::XOR, false);
-    break;
   case 27:  // xoris
-    regimmop(a, s, true, inst.UIMM << 16, Xor, &XEmitter::XOR, false);
+  {
+    if (s == a && inst.UIMM == 0)
+    {
+      // Make the nop visible in the generated code.
+      NOP();
+      return;
+    }
+
+    const u32 immediate = inst.OPCD == 26 ? inst.UIMM : inst.UIMM << 16;
+    regimmop(a, s, true, immediate, Xor, &XEmitter::XOR, false);
     break;
+  }
   case 12:  // addic
     regimmop(d, a, false, (u32)(s32)inst.SIMM_16, Add, &XEmitter::ADD, false, true);
     break;
@@ -339,7 +351,7 @@ void Jit64::reg_imm(UGeckoInstruction inst)
   }
 }
 
-bool Jit64::CheckMergedBranch(u32 crf)
+bool Jit64::CheckMergedBranch(u32 crf) const
 {
   if (!analyzer.HasOption(PPCAnalyst::PPCAnalyzer::OPTION_BRANCH_MERGE))
     return false;
@@ -352,7 +364,7 @@ bool Jit64::CheckMergedBranch(u32 crf)
            ((next.OPCD == 19) && (next.SUBOP10 == 528) /* bcctrx */) ||
            ((next.OPCD == 19) && (next.SUBOP10 == 16) /* bclrx */)) &&
           (next.BO & BO_DONT_DECREMENT_FLAG) && !(next.BO & BO_DONT_CHECK_CONDITION) &&
-          (next.BI >> 2) == crf);
+          static_cast<u32>(next.BI >> 2) == crf);
 }
 
 void Jit64::DoMergedBranch()
@@ -598,7 +610,7 @@ void Jit64::boolX(UGeckoInstruction inst)
   JITDISABLE(bJITIntegerOff);
   int a = inst.RA, s = inst.RS, b = inst.RB;
   bool needs_test = false;
-  _dbg_assert_msg_(DYNA_REC, inst.OPCD == 31, "Invalid boolX");
+  DEBUG_ASSERT_MSG(DYNA_REC, inst.OPCD == 31, "Invalid boolX");
 
   if (gpr.R(s).IsImm() && gpr.R(b).IsImm())
   {
@@ -956,8 +968,8 @@ void Jit64::MultiplyImmediate(u32 imm, int a, int d, bool overflow)
 
     // We could handle factors of 2^N*3, 2^N*5, and 2^N*9 using lea+shl, but testing shows
     // it seems to be slower overall.
-    static u8 lea_scales[3] = {3, 5, 9};
-    for (int i = 0; i < 3; i++)
+    static constexpr std::array<u8, 3> lea_scales{{3, 5, 9}};
+    for (size_t i = 0; i < lea_scales.size(); i++)
     {
       if (imm == lea_scales[i])
       {
@@ -1211,7 +1223,8 @@ void Jit64::divwx(UGeckoInstruction inst)
     s32 i = gpr.R(a).SImm32(), j = gpr.R(b).SImm32();
     if (j == 0 || (i == (s32)0x80000000 && j == -1))
     {
-      gpr.SetImmediate32(d, (i >> 31) ^ j);
+      const u32 result = i < 0 ? 0xFFFFFFFF : 0x00000000;
+      gpr.SetImmediate32(d, result);
       if (inst.OE)
         GenerateConstantOverflow(true);
     }
@@ -1229,38 +1242,37 @@ void Jit64::divwx(UGeckoInstruction inst)
     gpr.FlushLockX(EAX, EDX);
     gpr.BindToRegister(d, (d == a || d == b), true);
     MOV(32, R(EAX), gpr.R(a));
-    CDQ();
     gpr.BindToRegister(b, true, false);
+
     TEST(32, gpr.R(b), gpr.R(b));
-    FixupBranch not_div_by_zero = J_CC(CC_NZ);
-    MOV(32, gpr.R(d), R(EDX));
-    if (inst.OE)
-    {
-      GenerateConstantOverflow(true);
-    }
-    FixupBranch end1 = J();
-    SetJumpTarget(not_div_by_zero);
-    CMP(32, gpr.R(b), R(EDX));
-    FixupBranch not_div_by_neg_one = J_CC(CC_NZ);
+    const FixupBranch overflow = J_CC(CC_E);
+
+    CMP(32, R(EAX), Imm32(0x80000000));
+    const FixupBranch normal_path1 = J_CC(CC_NE);
+
+    CMP(32, gpr.R(b), Imm32(0xFFFFFFFF));
+    const FixupBranch normal_path2 = J_CC(CC_NE);
+
+    SetJumpTarget(overflow);
+    SAR(32, R(EAX), Imm8(31));
     MOV(32, gpr.R(d), R(EAX));
-    NEG(32, gpr.R(d));
-    FixupBranch no_overflow = J_CC(CC_NO);
-    XOR(32, gpr.R(d), gpr.R(d));
     if (inst.OE)
     {
       GenerateConstantOverflow(true);
     }
-    FixupBranch end2 = J();
-    SetJumpTarget(not_div_by_neg_one);
+    const FixupBranch done = J();
+
+    SetJumpTarget(normal_path1);
+    SetJumpTarget(normal_path2);
+
+    CDQ();
     IDIV(32, gpr.R(b));
     MOV(32, gpr.R(d), R(EAX));
-    SetJumpTarget(no_overflow);
     if (inst.OE)
     {
       GenerateConstantOverflow(false);
     }
-    SetJumpTarget(end1);
-    SetJumpTarget(end2);
+    SetJumpTarget(done);
   }
   if (inst.Rc)
     ComputeRC(gpr.R(d));
@@ -1343,8 +1355,6 @@ void Jit64::arithXex(UGeckoInstruction inst)
   {
     if (!js.carryFlagInverted)
       CMC();
-    if (d != b)
-      MOV(32, gpr.R(d), gpr.R(b));
     SBB(32, gpr.R(d), gpr.R(a));
     invertedCarry = true;
   }
@@ -1426,7 +1436,7 @@ void Jit64::rlwinmx(UGeckoInstruction inst)
   {
     u32 result = gpr.R(s).Imm32();
     if (inst.SH != 0)
-      result = _rotl(result, inst.SH);
+      result = Common::RotateLeft(result, inst.SH);
     result &= Helper_Mask(inst.MB, inst.ME);
     gpr.SetImmediate32(a, result);
     if (inst.Rc)
@@ -1511,7 +1521,8 @@ void Jit64::rlwimix(UGeckoInstruction inst)
   if (gpr.R(a).IsImm() && gpr.R(s).IsImm())
   {
     u32 mask = Helper_Mask(inst.MB, inst.ME);
-    gpr.SetImmediate32(a, (gpr.R(a).Imm32() & ~mask) | (_rotl(gpr.R(s).Imm32(), inst.SH) & mask));
+    gpr.SetImmediate32(a, (gpr.R(a).Imm32() & ~mask) |
+                              (Common::RotateLeft(gpr.R(s).Imm32(), inst.SH) & mask));
     if (inst.Rc)
       ComputeRC(gpr.R(a));
   }
@@ -1537,7 +1548,7 @@ void Jit64::rlwimix(UGeckoInstruction inst)
     {
       gpr.BindToRegister(a, true, true);
       AndWithMask(gpr.RX(a), ~mask);
-      OR(32, gpr.R(a), Imm32(_rotl(gpr.R(s).Imm32(), inst.SH) & mask));
+      OR(32, gpr.R(a), Imm32(Common::RotateLeft(gpr.R(s).Imm32(), inst.SH) & mask));
     }
     else if (inst.SH)
     {
@@ -1611,7 +1622,7 @@ void Jit64::rlwnmx(UGeckoInstruction inst)
   u32 mask = Helper_Mask(inst.MB, inst.ME);
   if (gpr.R(b).IsImm() && gpr.R(s).IsImm())
   {
-    gpr.SetImmediate32(a, _rotl(gpr.R(s).Imm32(), gpr.R(b).Imm32() & 0x1F) & mask);
+    gpr.SetImmediate32(a, Common::RotateLeft(gpr.R(s).Imm32(), gpr.R(b).Imm32() & 0x1F) & mask);
   }
   else
   {
@@ -1888,10 +1899,10 @@ void Jit64::twX(UGeckoInstruction inst)
     CMP(32, gpr.R(a), gpr.R(inst.RB));
   }
 
+  constexpr std::array<CCFlags, 5> conditions{{CC_A, CC_B, CC_E, CC_G, CC_L}};
   std::vector<FixupBranch> fixups;
-  CCFlags conditions[] = {CC_A, CC_B, CC_E, CC_G, CC_L};
 
-  for (int i = 0; i < 5; i++)
+  for (size_t i = 0; i < conditions.size(); i++)
   {
     if (inst.TO & (1 << i))
     {

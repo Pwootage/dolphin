@@ -10,23 +10,22 @@
 #include <QPushButton>
 #include <QStyle>
 
-#include <iostream>
-
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+
 #include "DolphinQt2/Settings.h"
 
-CheatWarningWidget::CheatWarningWidget(const std::string& game_id) : m_game_id(game_id)
+CheatWarningWidget::CheatWarningWidget(const std::string& game_id, bool restart_required,
+                                       QWidget* parent)
+    : QWidget(parent), m_game_id(game_id), m_restart_required(restart_required)
 {
   CreateWidgets();
   ConnectWidgets();
 
-  connect(&Settings::Instance(), &Settings::EnableCheatsChanged,
+  connect(&Settings::Instance(), &Settings::EnableCheatsChanged, this,
           [this] { Update(Core::IsRunning()); });
-  connect(&Settings::Instance(), &Settings::EmulationStateChanged, [this](Core::State state) {
-    std::cout << (state == Core::State::Running) << std::endl;
-    Update(state == Core::State::Running);
-  });
+  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
+          [this](Core::State state) { Update(state == Core::State::Running); });
 
   Update(Core::IsRunning());
 }
@@ -62,7 +61,7 @@ void CheatWarningWidget::Update(bool running)
   bool hide_widget = true;
   bool hide_config_button = true;
 
-  if (running && SConfig::GetInstance().GetGameID() == m_game_id)
+  if (running && SConfig::GetInstance().GetGameID() == m_game_id && m_restart_required)
   {
     hide_widget = false;
     m_text->setText(tr("Changing cheats will only take effect when the game is restarted."));

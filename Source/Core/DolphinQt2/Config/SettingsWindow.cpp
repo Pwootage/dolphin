@@ -3,28 +3,24 @@
 // Refer to the license.txt file included.
 
 #include <QDialogButtonBox>
+#include <QPushButton>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
 #include "DolphinQt2/Config/SettingsWindow.h"
 #include "DolphinQt2/MainWindow.h"
-#include "DolphinQt2/QtUtils/ListTabWidget.h"
+#include "DolphinQt2/QtUtils/WrapInScrollArea.h"
 #include "DolphinQt2/Resources.h"
 #include "DolphinQt2/Settings.h"
 #include "DolphinQt2/Settings/AdvancedPane.h"
 #include "DolphinQt2/Settings/AudioPane.h"
+#include "DolphinQt2/Settings/GameCubePane.h"
 #include "DolphinQt2/Settings/GeneralPane.h"
 #include "DolphinQt2/Settings/InterfacePane.h"
 #include "DolphinQt2/Settings/PathPane.h"
+#include "DolphinQt2/Settings/WiiPane.h"
 
-static int AddTab(ListTabWidget* tab_widget, const QString& label, QWidget* widget,
-                  const char* icon_name)
-{
-  int index = tab_widget->addTab(widget, label);
-  auto set_icon = [=] { tab_widget->setTabIcon(index, Resources::GetScaledThemeIcon(icon_name)); };
-  QObject::connect(&Settings::Instance(), &Settings::ThemeChanged, set_icon);
-  set_icon();
-  return index;
-}
+#include "Core/Core.h"
 
 SettingsWindow::SettingsWindow(QWidget* parent) : QDialog(parent)
 {
@@ -36,29 +32,40 @@ SettingsWindow::SettingsWindow(QWidget* parent) : QDialog(parent)
   QVBoxLayout* layout = new QVBoxLayout;
 
   // Add content to layout before dialog buttons.
-  m_tabs = new ListTabWidget();
-  layout->addWidget(m_tabs);
+  m_tab_widget = new QTabWidget();
+  layout->addWidget(m_tab_widget);
 
-  m_general_pane_index = AddTab(m_tabs, tr("General"), new GeneralPane(), "config");
-  AddTab(m_tabs, tr("Interface"), new InterfacePane(), "browse");
-  m_audio_pane_index = AddTab(m_tabs, tr("Audio"), new AudioPane(), "play");
-  AddTab(m_tabs, tr("Paths"), new PathPane(), "browse");
-  AddTab(m_tabs, tr("Advanced"), new AdvancedPane(), "config");
+  m_tab_widget->addTab(GetWrappedWidget(new GeneralPane, this, 125, 100), tr("General"));
+  m_tab_widget->addTab(GetWrappedWidget(new InterfacePane, this, 125, 100), tr("Interface"));
+  m_tab_widget->addTab(GetWrappedWidget(new AudioPane, this, 125, 100), tr("Audio"));
+  m_tab_widget->addTab(GetWrappedWidget(new PathPane, this, 125, 100), tr("Paths"));
+  m_tab_widget->addTab(GetWrappedWidget(new GameCubePane, this, 125, 100), tr("GameCube"));
+
+  auto* wii_pane = new WiiPane;
+  m_tab_widget->addTab(GetWrappedWidget(wii_pane, this, 125, 100), tr("Wii"));
+
+  connect(&Settings::Instance(), &Settings::EmulationStateChanged, [wii_pane](Core::State state) {
+    wii_pane->OnEmulationStateChanged(state != Core::State::Uninitialized);
+  });
+
+  m_tab_widget->addTab(new AdvancedPane(), tr("Advanced"));
 
   // Dialog box buttons
-  QDialogButtonBox* ok_box = new QDialogButtonBox(QDialogButtonBox::Ok);
-  connect(ok_box, &QDialogButtonBox::accepted, this, &SettingsWindow::accept);
-  layout->addWidget(ok_box);
+  QDialogButtonBox* close_box = new QDialogButtonBox(QDialogButtonBox::Close);
+
+  connect(close_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+  layout->addWidget(close_box);
 
   setLayout(layout);
 }
 
 void SettingsWindow::SelectAudioPane()
 {
-  m_tabs->setCurrentIndex(m_audio_pane_index);
+  m_tab_widget->setCurrentIndex(static_cast<int>(TabIndex::Audio));
 }
 
 void SettingsWindow::SelectGeneralPane()
 {
-  m_tabs->setCurrentIndex(m_general_pane_index);
+  m_tab_widget->setCurrentIndex(static_cast<int>(TabIndex::General));
 }

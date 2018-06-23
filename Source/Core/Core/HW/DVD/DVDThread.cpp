@@ -109,7 +109,7 @@ void Start()
 
 static void StartDVDThread()
 {
-  _assert_(!s_dvd_thread.joinable());
+  ASSERT(!s_dvd_thread.joinable());
   s_dvd_thread_exiting.Clear();
   s_dvd_thread = std::thread(DVDThread);
 }
@@ -122,7 +122,7 @@ void Stop()
 
 static void StopDVDThread()
 {
-  _assert_(s_dvd_thread.joinable());
+  ASSERT(s_dvd_thread.joinable());
 
   // By setting s_DVD_thread_exiting, we ask the DVD thread to cleanly exit.
   // In case the request queue is empty, we need to set s_request_queue_expanded
@@ -188,10 +188,22 @@ bool HasDisc()
   return s_disc != nullptr;
 }
 
+bool IsEncryptedAndHashed()
+{
+  // IsEncryptedAndHashed is thread-safe, so calling WaitUntilIdle isn't necessary.
+  return s_disc->IsEncryptedAndHashed();
+}
+
 DiscIO::Platform GetDiscType()
 {
   // GetVolumeType is thread-safe, so calling WaitUntilIdle isn't necessary.
   return s_disc->GetVolumeType();
+}
+
+u64 PartitionOffsetToRawOffset(u64 offset, const DiscIO::Partition& partition)
+{
+  // PartitionOffsetToRawOffset is thread-safe, so calling WaitUntilIdle isn't necessary.
+  return s_disc->PartitionOffsetToRawOffset(offset, partition);
 }
 
 IOS::ES::TMDReader GetTMD(const DiscIO::Partition& partition)
@@ -226,7 +238,7 @@ bool UpdateRunningGameMetadata(const DiscIO::Partition& partition, std::optional
 
 void WaitUntilIdle()
 {
-  _assert_(Core::IsCPUThread());
+  ASSERT(Core::IsCPUThread());
 
   while (!s_request_queue.Empty())
     s_result_queue_expanded.Wait();
@@ -253,7 +265,7 @@ static void StartReadInternal(bool copy_to_ram, u32 output_address, u64 dvd_offs
                               const DiscIO::Partition& partition,
                               DVDInterface::ReplyType reply_type, s64 ticks_until_completion)
 {
-  _assert_(Core::IsCPUThread());
+  ASSERT(Core::IsCPUThread());
 
   ReadRequest request;
 
@@ -313,9 +325,10 @@ static void FinishRead(u64 id, s64 cycles_late)
   const ReadRequest& request = result.first;
   const std::vector<u8>& buffer = result.second;
 
-  DEBUG_LOG(DVDINTERFACE, "Disc has been read. Real time: %" PRIu64 " us. "
-                          "Real time including delay: %" PRIu64 " us. "
-                          "Emulated time including delay: %" PRIu64 " us.",
+  DEBUG_LOG(DVDINTERFACE,
+            "Disc has been read. Real time: %" PRIu64 " us. "
+            "Real time including delay: %" PRIu64 " us. "
+            "Emulated time including delay: %" PRIu64 " us.",
             request.realtime_done_us - request.realtime_started_us,
             Common::Timer::GetTimeUs() - request.realtime_started_us,
             (CoreTiming::GetTicks() - request.time_started_ticks) /

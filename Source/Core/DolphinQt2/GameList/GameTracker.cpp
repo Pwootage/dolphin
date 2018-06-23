@@ -2,47 +2,163 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinQt2/GameList/GameTracker.h"
+
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
 
+#include "Core/ConfigManager.h"
+
 #include "DiscIO/DirectoryBlob.h"
-#include "DolphinQt2/GameList/GameFileCache.h"
-#include "DolphinQt2/GameList/GameTracker.h"
+
 #include "DolphinQt2/QtUtils/QueueOnObject.h"
 #include "DolphinQt2/Settings.h"
 
+// NOTE: Qt likes to be case-sensitive here even though it shouldn't be thus this ugly regex hack
 static const QStringList game_filters{
-    QStringLiteral("*.gcm"),  QStringLiteral("*.iso"), QStringLiteral("*.tgc"),
-    QStringLiteral("*.ciso"), QStringLiteral("*.gcz"), QStringLiteral("*.wbfs"),
-    QStringLiteral("*.wad"),  QStringLiteral("*.elf"), QStringLiteral("*.dol")};
+    QStringLiteral("*.[gG][cC][mM]"), QStringLiteral("*.[iI][sS][oO]"),
+    QStringLiteral("*.[tT][gG][cC]"), QStringLiteral("*.[cC][iI][sS][oO]"),
+    QStringLiteral("*.[gG][cC][zZ]"), QStringLiteral("*.[wW][bB][fF][sS]"),
+    QStringLiteral("*.[wW][aA][dD]"), QStringLiteral("*.[eE][lL][fF]"),
+    QStringLiteral("*.[dD][oO][lL]")};
 
 GameTracker::GameTracker(QObject* parent) : QFileSystemWatcher(parent)
 {
-  qRegisterMetaType<QSharedPointer<GameFile>>();
+  qRegisterMetaType<std::shared_ptr<const UICommon::GameFile>>();
+  qRegisterMetaType<std::string>();
+
   connect(this, &QFileSystemWatcher::directoryChanged, this, &GameTracker::UpdateDirectory);
   connect(this, &QFileSystemWatcher::fileChanged, this, &GameTracker::UpdateFile);
 
-  cache.Load();
+  m_load_thread.Reset([this](Command command) {
+    switch (command.type)
+    {
+    case CommandType::LoadCache:
+      LoadCache();
+      break;
+    case CommandType::Start:
+      StartInternal();
+    case CommandType::AddDirectory:
+      AddDirectoryInternal(command.path);
+      break;
+    case CommandType::RemoveDirectory:
+      RemoveDirectoryInternal(command.path);
+      break;
+    case CommandType::UpdateDirectory:
+      UpdateDirectoryInternal(command.path);
+      break;
+    case CommandType::UpdateFile:
+      UpdateFileInternal(command.path);
+      break;
+    }
+  });
 
-  m_load_thread.Reset([this](const QString& path) { LoadGame(path); });
+  m_load_thread.EmplaceItem(Command{CommandType::LoadCache, {}});
+
+  // TODO: When language changes, reload m_title_database and call m_cache.UpdateAdditionalMetadata
+}
+
+void GameTracker::LoadCache()
+{
+  m_cache.Load();
+  m_cache_loaded_event.Set();
+}
+
+void GameTracker::Start()
+{
+  if (m_initial_games_emitted)
+    return;
+
+  m_initial_games_emitted = true;
+
+  m_load_thread.EmplaceItem(Command{CommandType::Start, {}});
+
+  m_cache_loaded_event.Wait();
+
+  m_cache.ForEach(
+      [this](const std::shared_ptr<const UICommon::GameFile>& game) { emit GameLoaded(game); });
+
+  m_initial_games_emitted_event.Set();
+}
+
+void GameTracker::StartInternal()
+{
+  if (m_started)
+    return;
+
+  m_started = true;
+
+  std::vector<std::string> paths;
+  paths.reserve(m_tracked_files.size());
+  for (const QString& path : m_tracked_files.keys())
+    paths.push_back(path.toStdString());
+
+  const auto emit_game_loaded = [this](const std::shared_ptr<const UICommon::GameFile>& game) {
+    emit GameLoaded(game);
+  };
+  const auto emit_game_updated = [this](const std::shared_ptr<const UICommon::GameFile>& game) {
+    emit GameUpdated(game);
+  };
+  const auto emit_game_removed = [this](const std::string& path) { emit GameRemoved(path); };
+
+  m_initial_games_emitted_event.Wait();
+
+  bool cache_updated = m_cache.Update(paths, emit_game_loaded, emit_game_removed);
+  cache_updated |= m_cache.UpdateAdditionalMetadata(emit_game_updated);
+  if (cache_updated)
+    m_cache.Save();
 }
 
 void GameTracker::AddDirectory(const QString& dir)
 {
-  if (!QFileInfo(dir).exists())
-    return;
-  addPath(dir);
-  UpdateDirectory(dir);
+  m_load_thread.EmplaceItem(Command{CommandType::AddDirectory, dir});
 }
 
 void GameTracker::RemoveDirectory(const QString& dir)
 {
+  m_load_thread.EmplaceItem(Command{CommandType::RemoveDirectory, dir});
+}
+
+void GameTracker::ReloadDirectory(const QString& dir)
+{
+  m_load_thread.EmplaceItem(Command{CommandType::RemoveDirectory, dir});
+  m_load_thread.EmplaceItem(Command{CommandType::AddDirectory, dir});
+}
+
+void GameTracker::UpdateDirectory(const QString& dir)
+{
+  m_load_thread.EmplaceItem(Command{CommandType::UpdateDirectory, dir});
+}
+
+void GameTracker::UpdateFile(const QString& dir)
+{
+  m_load_thread.EmplaceItem(Command{CommandType::UpdateFile, dir});
+}
+
+void GameTracker::AddDirectoryInternal(const QString& dir)
+{
+  if (!QFileInfo(dir).exists())
+    return;
+  addPath(dir);
+  UpdateDirectoryInternal(dir);
+}
+
+static std::unique_ptr<QDirIterator> GetIterator(const QString& dir)
+{
+  return std::make_unique<QDirIterator>(dir, game_filters, QDir::NoFilter,
+                                        SConfig::GetInstance().m_RecursiveISOFolder ?
+                                            QDirIterator::Subdirectories :
+                                            QDirIterator::NoIteratorFlags);
+}
+
+void GameTracker::RemoveDirectoryInternal(const QString& dir)
+{
   removePath(dir);
-  QDirIterator it(dir, game_filters, QDir::NoFilter, QDirIterator::Subdirectories);
-  while (it.hasNext())
+  auto it = GetIterator(dir);
+  while (it->hasNext())
   {
-    QString path = QFileInfo(it.next()).canonicalFilePath();
+    QString path = QFileInfo(it->next()).canonicalFilePath();
     if (m_tracked_files.contains(path))
     {
       m_tracked_files[path].remove(dir);
@@ -50,18 +166,19 @@ void GameTracker::RemoveDirectory(const QString& dir)
       {
         removePath(path);
         m_tracked_files.remove(path);
-        emit GameRemoved(path);
+        if (m_started)
+          emit GameRemoved(path.toStdString());
       }
     }
   }
 }
 
-void GameTracker::UpdateDirectory(const QString& dir)
+void GameTracker::UpdateDirectoryInternal(const QString& dir)
 {
-  QDirIterator it(dir, game_filters, QDir::NoFilter, QDirIterator::Subdirectories);
-  while (it.hasNext())
+  auto it = GetIterator(dir);
+  while (it->hasNext())
   {
-    QString path = QFileInfo(it.next()).canonicalFilePath();
+    QString path = QFileInfo(it->next()).canonicalFilePath();
 
     if (m_tracked_files.contains(path))
     {
@@ -73,7 +190,7 @@ void GameTracker::UpdateDirectory(const QString& dir)
     {
       addPath(path);
       m_tracked_files[path] = QSet<QString>{dir};
-      m_load_thread.EmplaceItem(path);
+      LoadGame(path);
     }
   }
 
@@ -85,14 +202,32 @@ void GameTracker::UpdateDirectory(const QString& dir)
     if (tracked_file.empty())
     {
       m_tracked_files.remove(missing);
-      GameRemoved(missing);
+      if (m_started)
+        GameRemoved(missing.toStdString());
     }
+  }
+}
+
+void GameTracker::UpdateFileInternal(const QString& file)
+{
+  if (QFileInfo(file).exists())
+  {
+    if (m_started)
+      GameRemoved(file.toStdString());
+    addPath(file);
+    LoadGame(file);
+  }
+  else if (removePath(file))
+  {
+    m_tracked_files.remove(file);
+    if (m_started)
+      emit GameRemoved(file.toStdString());
   }
 }
 
 QSet<QString> GameTracker::FindMissingFiles(const QString& dir)
 {
-  QDirIterator it(dir, game_filters, QDir::NoFilter, QDirIterator::Subdirectories);
+  auto it = GetIterator(dir);
 
   QSet<QString> missing_files;
 
@@ -102,9 +237,9 @@ QSet<QString> GameTracker::FindMissingFiles(const QString& dir)
       missing_files.insert(key);
   }
 
-  while (it.hasNext())
+  while (it->hasNext())
   {
-    QString path = QFileInfo(it.next()).canonicalFilePath();
+    QString path = QFileInfo(it->next()).canonicalFilePath();
     if (m_tracked_files.contains(path))
       missing_files.remove(path);
   }
@@ -112,43 +247,19 @@ QSet<QString> GameTracker::FindMissingFiles(const QString& dir)
   return missing_files;
 }
 
-void GameTracker::UpdateFile(const QString& file)
-{
-  if (QFileInfo(file).exists())
-  {
-    GameRemoved(file);
-    addPath(file);
-
-    m_load_thread.EmplaceItem(file);
-  }
-  else if (removePath(file))
-  {
-    m_tracked_files.remove(file);
-    emit GameRemoved(file);
-  }
-}
-
 void GameTracker::LoadGame(const QString& path)
 {
-  if (!DiscIO::ShouldHideFromGameList(path.toStdString()))
-  {
-    if (cache.IsCached(path))
-    {
-      const QDateTime last_modified = QFileInfo(path).lastModified();
-      auto cached_file = cache.GetFile(path);
-      if (cached_file.GetLastModified() >= last_modified)
-      {
-        emit GameLoaded(QSharedPointer<GameFile>::create(cached_file));
-        return;
-      }
-    }
+  if (!m_started)
+    return;
 
-    auto game = QSharedPointer<GameFile>::create(path);
-    if (game->IsValid())
-    {
-      emit GameLoaded(game);
-      cache.Update(*game);
-      cache.Save();
-    }
+  const std::string converted_path = path.toStdString();
+  if (!DiscIO::ShouldHideFromGameList(converted_path))
+  {
+    bool cache_changed = false;
+    auto game = m_cache.AddOrGet(converted_path, &cache_changed);
+    if (game)
+      emit GameLoaded(std::move(game));
+    if (cache_changed)
+      m_cache.Save();
   }
 }

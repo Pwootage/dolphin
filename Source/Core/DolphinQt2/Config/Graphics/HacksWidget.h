@@ -8,6 +8,7 @@
 
 class GraphicsWindow;
 class QCheckBox;
+class QLabel;
 class QRadioButton;
 class QSlider;
 
@@ -21,12 +22,15 @@ private:
   void LoadSettings() override;
   void SaveSettings() override;
 
+  void OnBackendChanged(const QString& backend_name);
+
   // EFB
   QCheckBox* m_skip_efb_cpu;
   QCheckBox* m_ignore_format_changes;
   QCheckBox* m_store_efb_copies;
 
   // Texture Cache
+  QLabel* m_accuracy_label;
   QSlider* m_accuracy;
   QCheckBox* m_gpu_texture_decoding;
 

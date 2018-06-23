@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <QWidget>
 
 class QCheckBox;
@@ -13,6 +15,11 @@ class QPushButton;
 class QRadioButton;
 class QSlider;
 class QVBoxLayout;
+
+namespace Core
+{
+enum class State;
+}
 
 class GeneralPane final : public QWidget
 {
@@ -24,21 +31,22 @@ private:
   void CreateLayout();
   void ConnectLayout();
   void CreateBasic();
+  void CreateAutoUpdate();
   void CreateAdvanced();
 
   void LoadConfig();
   void OnSaveConfig();
+  void OnEmulationStateChanged(Core::State state);
 
   // Widgets
   QVBoxLayout* m_main_layout;
   QComboBox* m_combobox_speedlimit;
+  QComboBox* m_combobox_update_track;
   QCheckBox* m_checkbox_dualcore;
   QCheckBox* m_checkbox_cheats;
   QLabel* m_label_speedlimit;
 
-  QRadioButton* m_radio_interpreter;
-  QRadioButton* m_radio_cached_interpreter;
-  QRadioButton* m_radio_jit;
+  std::vector<QRadioButton*> m_cpu_cores;
 
 // Analytics related
 #if defined(USE_ANALYTICS) && USE_ANALYTICS

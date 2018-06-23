@@ -8,6 +8,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QLabel;
 class QVBoxLayout;
 
 class InterfacePane final : public QWidget
@@ -28,10 +29,12 @@ private:
   QComboBox* m_combobox_language;
 
   QComboBox* m_combobox_theme;
-  QCheckBox* m_checkbox_auto_window;
+  QComboBox* m_combobox_userstyle;
+  QLabel* m_label_userstyle;
   QCheckBox* m_checkbox_top_window;
-  QCheckBox* m_checkbox_render_to_window;
   QCheckBox* m_checkbox_use_builtin_title_database;
+  QCheckBox* m_checkbox_use_userstyle;
+  QCheckBox* m_checkbox_show_debugging_ui;
 
   QCheckBox* m_checkbox_confirm_on_stop;
   QCheckBox* m_checkbox_use_panic_handlers;

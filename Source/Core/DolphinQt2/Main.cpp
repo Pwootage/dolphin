@@ -2,11 +2,20 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#ifdef _WIN32
+#include <Windows.h>
+#include <cstdio>
+
+#include "Common/StringUtil.h"
+#endif
+
 #include <OptionParser.h>
 #include <QAbstractEventDispatcher>
 #include <QApplication>
 #include <QMessageBox>
 #include <QObject>
+#include <QPushButton>
+#include <QWidget>
 
 #include "Common/MsgHandler.h"
 #include "Core/Analytics.h"
@@ -14,22 +23,26 @@
 #include "Core/BootManager.h"
 #include "Core/Core.h"
 #include "DolphinQt2/Host.h"
-#include "DolphinQt2/InDevelopmentWarning.h"
 #include "DolphinQt2/MainWindow.h"
 #include "DolphinQt2/QtUtils/RunOnObject.h"
 #include "DolphinQt2/Resources.h"
 #include "DolphinQt2/Settings.h"
 #include "DolphinQt2/Translation.h"
+#include "DolphinQt2/Updater.h"
 #include "UICommon/CommandLineParse.h"
 #include "UICommon/UICommon.h"
 
 static bool QtMsgAlertHandler(const char* caption, const char* text, bool yes_no, MsgType style)
 {
-  return RunOnObject(QApplication::instance(), [&] {
+  std::optional<bool> r = RunOnObject(QApplication::instance(), [&] {
     QMessageBox message_box(QApplication::activeWindow());
     message_box.setWindowTitle(QString::fromUtf8(caption));
     message_box.setText(QString::fromUtf8(text));
+
     message_box.setStandardButtons(yes_no ? QMessageBox::Yes | QMessageBox::No : QMessageBox::Ok);
+    if (style == MsgType::Warning)
+      message_box.addButton(QMessageBox::Ignore)->setText(QObject::tr("Ignore for this session"));
+
     message_box.setIcon([&] {
       switch (style)
       {
@@ -46,14 +59,34 @@ static bool QtMsgAlertHandler(const char* caption, const char* text, bool yes_no
       return QMessageBox::NoIcon;
     }());
 
-    return message_box.exec() == QMessageBox::Yes;
+    const int button = message_box.exec();
+    if (button == QMessageBox::Yes)
+      return true;
+
+    if (button == QMessageBox::Ignore)
+      SetEnableAlert(false);
+
+    return false;
   });
+  if (r.has_value())
+    return *r;
+  return false;
 }
 
 // N.B. On Windows, this should be called from WinMain. Link against qtmain and specify
 // /SubSystem:Windows
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+  const bool console_attached = AttachConsole(ATTACH_PARENT_PROCESS) != FALSE;
+  HANDLE stdout_handle = ::GetStdHandle(STD_OUTPUT_HANDLE);
+  if (console_attached && stdout_handle)
+  {
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+  }
+#endif
+
 #if QT_VERSION >= QT_VERSION_CHECK(5, 6, 0)
   QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 #endif
@@ -61,18 +94,47 @@ int main(int argc, char* argv[])
   QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
   QCoreApplication::setOrganizationName(QStringLiteral("Dolphin Emulator"));
   QCoreApplication::setOrganizationDomain(QStringLiteral("dolphin-emu.org"));
-  QCoreApplication::setApplicationName(QStringLiteral("dolphin"));
+  QCoreApplication::setApplicationName(QStringLiteral("dolphin-emu"));
 
   QApplication app(argc, argv);
+
+#ifdef _WIN32
+  // Get the default system font because Qt's way of obtaining it is outdated
+  NONCLIENTMETRICS metrics = {};
+  LOGFONT& logfont = metrics.lfMenuFont;
+  metrics.cbSize = sizeof(NONCLIENTMETRICS);
+
+  if (SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0))
+  {
+    // Sadly Qt 5 doesn't support turning a native font handle into a QFont so this is the next best
+    // thing
+    QFont font = QApplication::font();
+    font.setFamily(QString::fromStdString(UTF16ToUTF8(logfont.lfFaceName)));
+
+    font.setItalic(logfont.lfItalic);
+    font.setStrikeOut(logfont.lfStrikeOut);
+    font.setUnderline(logfont.lfUnderline);
+
+    // The default font size is a bit too small
+    font.setPointSize(QFontInfo(font).pointSize() * 1.2);
+
+    QApplication::setFont(font);
+  }
+#endif
 
   auto parser = CommandLineParse::CreateParser(CommandLineParse::ParserOptions::IncludeGUIOptions);
   const optparse::Values& options = CommandLineParse::ParseArguments(parser.get(), argc, argv);
   const std::vector<std::string> args = parser->args();
 
+#ifdef _WIN32
+  FreeConsole();
+#endif
+
   UICommon::SetUserDirectory(static_cast<const char*>(options.get("user")));
   UICommon::CreateDirectories();
   UICommon::Init();
   Resources::Init();
+  Settings::Instance().SetBatchModeEnabled(options.is_set("batch"));
 
   // Hook up alerts from core
   RegisterMsgAlertHandler(QtMsgAlertHandler);
@@ -103,20 +165,20 @@ int main(int argc, char* argv[])
       QMessageBox::critical(nullptr, QObject::tr("Error"), QObject::tr("Invalid title ID."));
     }
   }
-
-  int retval = 0;
-
-  if (SConfig::GetInstance().m_show_development_warning)
+  else if (!args.empty())
   {
-    InDevelopmentWarning warning_box;
-    retval = warning_box.exec() == QDialog::Rejected;
+    boot = BootParameters::GenerateFromFile(args.front());
   }
-  if (!retval)
+
+  int retval;
+
   {
     DolphinAnalytics::Instance()->ReportDolphinStart("qt");
 
     MainWindow win{std::move(boot)};
-    win.show();
+    if (options.is_set("debugger"))
+      Settings::Instance().SetDebugModeEnabled(true);
+    win.Show();
 
 #if defined(USE_ANALYTICS) && USE_ANALYTICS
     if (!SConfig::GetInstance().m_analytics_permission_asked)
@@ -141,16 +203,18 @@ int main(int argc, char* argv[])
       const int answer = analytics_prompt.exec();
 
       SConfig::GetInstance().m_analytics_permission_asked = true;
-      SConfig::GetInstance().m_analytics_enabled = (answer == QMessageBox::Yes);
+      Settings::Instance().SetAnalyticsEnabled(answer == QMessageBox::Yes);
 
       DolphinAnalytics::Instance()->ReloadConfig();
     }
 #endif
 
+    auto* updater = new Updater(&win);
+    updater->start();
+
     retval = app.exec();
   }
 
-  BootManager::Stop();
   Core::Shutdown();
   UICommon::Shutdown();
   Host::GetInstance()->deleteLater();

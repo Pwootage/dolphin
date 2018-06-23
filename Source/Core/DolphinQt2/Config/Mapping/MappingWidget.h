@@ -24,7 +24,7 @@ namespace ControllerEmu
 class Control;
 class ControlGroup;
 class EmulatedController;
-}
+}  // namespace ControllerEmu
 
 namespace ciface
 {
@@ -32,7 +32,7 @@ namespace Core
 {
 class Device;
 }
-}
+}  // namespace ciface
 
 class MappingWidget : public QWidget
 {
@@ -44,6 +44,9 @@ public:
   std::shared_ptr<ciface::Core::Device> GetDevice() const;
 
   MappingWindow* GetParent() const;
+
+  bool IsIterativeInput() const;
+  void NextButton(MappingButton* button);
 
   virtual void LoadSettings() = 0;
   virtual void SaveSettings() = 0;

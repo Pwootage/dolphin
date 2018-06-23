@@ -6,6 +6,8 @@
 
 #include <chrono>
 #include <cstddef>
+#include <mutex>
+
 #include <curl/curl.h>
 
 #include "Common/Logging/Log.h"
@@ -23,18 +25,28 @@ public:
     POST,
   };
 
-  explicit Impl(std::chrono::milliseconds timeout_ms);
+  explicit Impl(std::chrono::milliseconds timeout_ms, ProgressCallback callback);
 
   bool IsValid() const;
+  void SetCookies(const std::string& cookies);
   Response Fetch(const std::string& url, Method method, const Headers& headers, const u8* payload,
                  size_t size);
 
+  static int CurlProgressCallback(Impl* impl, double dlnow, double dltotal, double ulnow,
+                                  double ultotal);
+
 private:
-  std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> m_curl{curl_easy_init(), curl_easy_cleanup};
+  static std::mutex s_curl_was_inited_mutex;
+  static bool s_curl_was_inited;
+  ProgressCallback m_callback;
+  std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> m_curl{nullptr, curl_easy_cleanup};
 };
 
-HttpRequest::HttpRequest(std::chrono::milliseconds timeout_ms)
-    : m_impl(std::make_unique<Impl>(timeout_ms))
+std::mutex HttpRequest::Impl::s_curl_was_inited_mutex;
+bool HttpRequest::Impl::s_curl_was_inited = false;
+
+HttpRequest::HttpRequest(std::chrono::milliseconds timeout_ms, ProgressCallback callback)
+    : m_impl(std::make_unique<Impl>(timeout_ms, callback))
 {
 }
 
@@ -43,6 +55,11 @@ HttpRequest::~HttpRequest() = default;
 bool HttpRequest::IsValid() const
 {
   return m_impl->IsValid();
+}
+
+void HttpRequest::SetCookies(const std::string& cookies)
+{
+  m_impl->SetCookies(cookies);
 }
 
 HttpRequest::Response HttpRequest::Get(const std::string& url, const Headers& headers)
@@ -63,15 +80,46 @@ HttpRequest::Response HttpRequest::Post(const std::string& url, const std::strin
                        reinterpret_cast<const u8*>(payload.data()), payload.size());
 }
 
-HttpRequest::Impl::Impl(std::chrono::milliseconds timeout_ms)
+int HttpRequest::Impl::CurlProgressCallback(Impl* impl, double dlnow, double dltotal, double ulnow,
+                                            double ultotal)
 {
+  // Abort if callback isn't true
+  return !impl->m_callback(dlnow, dltotal, ulnow, ultotal);
+}
+
+HttpRequest::Impl::Impl(std::chrono::milliseconds timeout_ms, ProgressCallback callback)
+    : m_callback(callback)
+{
+  {
+    std::lock_guard<std::mutex> lk(s_curl_was_inited_mutex);
+    if (!s_curl_was_inited)
+    {
+      curl_global_init(CURL_GLOBAL_DEFAULT);
+      s_curl_was_inited = true;
+    }
+  }
+
+  m_curl.reset(curl_easy_init());
   if (!m_curl)
     return;
+
+  curl_easy_setopt(m_curl.get(), CURLOPT_NOPROGRESS, m_callback == nullptr);
+
+  if (m_callback)
+  {
+    curl_easy_setopt(m_curl.get(), CURLOPT_PROGRESSDATA, this);
+    curl_easy_setopt(m_curl.get(), CURLOPT_PROGRESSFUNCTION, CurlProgressCallback);
+  }
 
   // libcurl may not have been built with async DNS support, so we disable
   // signal handlers to avoid a possible and likely crash if a resolve times out.
   curl_easy_setopt(m_curl.get(), CURLOPT_NOSIGNAL, true);
-  curl_easy_setopt(m_curl.get(), CURLOPT_TIMEOUT_MS, static_cast<long>(timeout_ms.count()));
+  curl_easy_setopt(m_curl.get(), CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(timeout_ms.count()));
+  // Sadly CURLOPT_LOW_SPEED_TIME doesn't have a millisecond variant so we have to use seconds
+  curl_easy_setopt(
+      m_curl.get(), CURLOPT_LOW_SPEED_TIME,
+      static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(timeout_ms).count()));
+  curl_easy_setopt(m_curl.get(), CURLOPT_LOW_SPEED_LIMIT, 1);
 #ifdef _WIN32
   // ALPN support is enabled by default but requires Windows >= 8.1.
   curl_easy_setopt(m_curl.get(), CURLOPT_SSL_ENABLE_ALPN, false);
@@ -83,7 +131,12 @@ bool HttpRequest::Impl::IsValid() const
   return m_curl != nullptr;
 }
 
-static size_t CurlCallback(char* data, size_t size, size_t nmemb, void* userdata)
+void HttpRequest::Impl::SetCookies(const std::string& cookies)
+{
+  curl_easy_setopt(m_curl.get(), CURLOPT_COOKIE, cookies.c_str());
+}
+
+static size_t CurlWriteCallback(char* data, size_t size, size_t nmemb, void* userdata)
 {
   auto* buffer = static_cast<std::vector<u8>*>(userdata);
   const size_t actual_size = size * nmemb;
@@ -117,7 +170,7 @@ HttpRequest::Response HttpRequest::Impl::Fetch(const std::string& url, Method me
   curl_easy_setopt(m_curl.get(), CURLOPT_HTTPHEADER, list);
 
   std::vector<u8> buffer;
-  curl_easy_setopt(m_curl.get(), CURLOPT_WRITEFUNCTION, CurlCallback);
+  curl_easy_setopt(m_curl.get(), CURLOPT_WRITEFUNCTION, CurlWriteCallback);
   curl_easy_setopt(m_curl.get(), CURLOPT_WRITEDATA, &buffer);
 
   const char* type = method == Method::POST ? "POST" : "GET";

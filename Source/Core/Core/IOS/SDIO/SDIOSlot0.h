@@ -16,11 +16,7 @@
 
 class PointerWrap;
 
-namespace IOS
-{
-namespace HLE
-{
-namespace Device
+namespace IOS::HLE::Device
 {
 // The front SD slot
 class SDIOSlot0 : public Device
@@ -30,8 +26,8 @@ public:
 
   void DoState(PointerWrap& p) override;
 
-  ReturnCode Open(const OpenRequest& request) override;
-  ReturnCode Close(u32 fd) override;
+  IPCCommandResult Open(const OpenRequest& request) override;
+  IPCCommandResult Close(u32 fd) override;
   IPCCommandResult IOCtl(const IOCtlRequest& request) override;
   IPCCommandResult IOCtlV(const IOCtlVRequest& request) override;
 
@@ -169,6 +165,4 @@ private:
 
   File::IOFile m_card;
 };
-}  // namespace Device
-}  // namespace HLE
-}  // namespace IOS
+}  // namespace IOS::HLE::Device

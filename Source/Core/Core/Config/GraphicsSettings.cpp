@@ -21,10 +21,10 @@ const ConfigInfo<int> GFX_ADAPTER{{System::GFX, "Hardware", "Adapter"}, 0};
 // Graphics.Settings
 
 const ConfigInfo<bool> GFX_WIDESCREEN_HACK{{System::GFX, "Settings", "wideScreenHack"}, false};
-const ConfigInfo<int> GFX_ASPECT_RATIO{{System::GFX, "Settings", "AspectRatio"},
-                                       static_cast<int>(AspectMode::Auto)};
-const ConfigInfo<int> GFX_SUGGESTED_ASPECT_RATIO{{System::GFX, "Settings", "SuggestedAspectRatio"},
-                                                 static_cast<int>(AspectMode::Auto)};
+const ConfigInfo<AspectMode> GFX_ASPECT_RATIO{{System::GFX, "Settings", "AspectRatio"},
+                                              AspectMode::Auto};
+const ConfigInfo<AspectMode> GFX_SUGGESTED_ASPECT_RATIO{
+    {System::GFX, "Settings", "SuggestedAspectRatio"}, AspectMode::Auto};
 const ConfigInfo<bool> GFX_CROP{{System::GFX, "Settings", "Crop"}, false};
 const ConfigInfo<int> GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES{
     {System::GFX, "Settings", "SafeTextureCacheColorSamples"}, 128};
@@ -38,8 +38,6 @@ const ConfigInfo<bool> GFX_OVERLAY_STATS{{System::GFX, "Settings", "OverlayStats
 const ConfigInfo<bool> GFX_OVERLAY_PROJ_STATS{{System::GFX, "Settings", "OverlayProjStats"}, false};
 const ConfigInfo<bool> GFX_DUMP_TEXTURES{{System::GFX, "Settings", "DumpTextures"}, false};
 const ConfigInfo<bool> GFX_HIRES_TEXTURES{{System::GFX, "Settings", "HiresTextures"}, false};
-const ConfigInfo<bool> GFX_CONVERT_HIRES_TEXTURES{{System::GFX, "Settings", "ConvertHiresTextures"},
-                                                  false};
 const ConfigInfo<bool> GFX_CACHE_HIRES_TEXTURES{{System::GFX, "Settings", "CacheHiresTextures"},
                                                 false};
 const ConfigInfo<bool> GFX_DUMP_EFB_TARGET{{System::GFX, "Settings", "DumpEFBTarget"}, false};
@@ -50,6 +48,7 @@ const ConfigInfo<bool> GFX_FREE_LOOK{{System::GFX, "Settings", "FreeLook"}, fals
 const ConfigInfo<bool> GFX_USE_FFV1{{System::GFX, "Settings", "UseFFV1"}, false};
 const ConfigInfo<std::string> GFX_DUMP_FORMAT{{System::GFX, "Settings", "DumpFormat"}, "avi"};
 const ConfigInfo<std::string> GFX_DUMP_CODEC{{System::GFX, "Settings", "DumpCodec"}, ""};
+const ConfigInfo<std::string> GFX_DUMP_ENCODER{{System::GFX, "Settings", "DumpEncoder"}, ""};
 const ConfigInfo<std::string> GFX_DUMP_PATH{{System::GFX, "Settings", "DumpPath"}, ""};
 const ConfigInfo<int> GFX_BITRATE_KBPS{{System::GFX, "Settings", "BitrateKbps"}, 2500};
 const ConfigInfo<bool> GFX_INTERNAL_RESOLUTION_FRAME_DUMPS{
@@ -77,12 +76,10 @@ const ConfigInfo<bool> GFX_BACKEND_MULTITHREADING{
 const ConfigInfo<int> GFX_COMMAND_BUFFER_EXECUTE_INTERVAL{
     {System::GFX, "Settings", "CommandBufferExecuteInterval"}, 100};
 const ConfigInfo<bool> GFX_SHADER_CACHE{{System::GFX, "Settings", "ShaderCache"}, true};
-const ConfigInfo<bool> GFX_BACKGROUND_SHADER_COMPILING{
-    {System::GFX, "Settings", "BackgroundShaderCompiling"}, false};
-const ConfigInfo<bool> GFX_DISABLE_SPECIALIZED_SHADERS{
-    {System::GFX, "Settings", "DisableSpecializedShaders"}, false};
-const ConfigInfo<bool> GFX_PRECOMPILE_UBER_SHADERS{
-    {System::GFX, "Settings", "PrecompileUberShaders"}, true};
+const ConfigInfo<bool> GFX_WAIT_FOR_SHADERS_BEFORE_STARTING{
+    {System::GFX, "Settings", "WaitForShadersBeforeStarting"}, false};
+const ConfigInfo<ShaderCompilationMode> GFX_SHADER_COMPILATION_MODE{
+    {System::GFX, "Settings", "ShaderCompilationMode"}, ShaderCompilationMode::Synchronous};
 const ConfigInfo<int> GFX_SHADER_COMPILER_THREADS{
     {System::GFX, "Settings", "ShaderCompilerThreads"}, 1};
 const ConfigInfo<int> GFX_SHADER_PRECOMPILER_THREADS{
@@ -108,10 +105,17 @@ const ConfigInfo<std::string> GFX_ENHANCE_POST_SHADER{
     {System::GFX, "Enhancements", "PostProcessingShader"}, ""};
 const ConfigInfo<bool> GFX_ENHANCE_FORCE_TRUE_COLOR{{System::GFX, "Enhancements", "ForceTrueColor"},
                                                     true};
+const ConfigInfo<bool> GFX_ENHANCE_DISABLE_COPY_FILTER{
+    {System::GFX, "Enhancements", "DisableCopyFilter"}, true};
+const ConfigInfo<bool> GFX_ENHANCE_ARBITRARY_MIPMAP_DETECTION{
+    {System::GFX, "Enhancements", "ArbitraryMipmapDetection"}, true};
+const ConfigInfo<float> GFX_ENHANCE_ARBITRARY_MIPMAP_DETECTION_THRESHOLD{
+    {System::GFX, "Enhancements", "ArbitraryMipmapDetectionThreshold"}, 4.5f};
 
 // Graphics.Stereoscopy
 
-const ConfigInfo<int> GFX_STEREO_MODE{{System::GFX, "Stereoscopy", "StereoMode"}, 0};
+const ConfigInfo<StereoMode> GFX_STEREO_MODE{{System::GFX, "Stereoscopy", "StereoMode"},
+                                             StereoMode::Off};
 const ConfigInfo<int> GFX_STEREO_DEPTH{{System::GFX, "Stereoscopy", "StereoDepth"}, 20};
 const ConfigInfo<int> GFX_STEREO_CONVERGENCE_PERCENTAGE{
     {System::GFX, "Stereoscopy", "StereoConvergencePercentage"}, 100};
@@ -133,21 +137,16 @@ const ConfigInfo<bool> GFX_HACK_SKIP_EFB_COPY_TO_RAM{{System::GFX, "Hacks", "EFB
                                                      true};
 const ConfigInfo<bool> GFX_HACK_SKIP_XFB_COPY_TO_RAM{{System::GFX, "Hacks", "XFBToTextureEnable"},
                                                      true};
+const ConfigInfo<bool> GFX_HACK_DISABLE_COPY_TO_VRAM{{System::GFX, "Hacks", "DisableCopyToVRAM"},
+                                                     false};
 const ConfigInfo<bool> GFX_HACK_IMMEDIATE_XFB{{System::GFX, "Hacks", "ImmediateXFBEnable"}, false};
-const ConfigInfo<bool> GFX_HACK_COPY_EFB_ENABLED{{System::GFX, "Hacks", "EFBScaledCopy"}, true};
+const ConfigInfo<bool> GFX_HACK_COPY_EFB_SCALED{{System::GFX, "Hacks", "EFBScaledCopy"}, true};
 const ConfigInfo<bool> GFX_HACK_EFB_EMULATE_FORMAT_CHANGES{
     {System::GFX, "Hacks", "EFBEmulateFormatChanges"}, false};
 const ConfigInfo<bool> GFX_HACK_VERTEX_ROUDING{{System::GFX, "Hacks", "VertexRounding"}, false};
 
 // Graphics.GameSpecific
 
-const ConfigInfo<int> GFX_PROJECTION_HACK{{System::GFX, "GameSpecific", "ProjectionHack"}, 0};
-const ConfigInfo<int> GFX_PROJECTION_HACK_SZNEAR{{System::GFX, "GameSpecific", "PH_SZNear"}, 0};
-const ConfigInfo<int> GFX_PROJECTION_HACK_SZFAR{{System::GFX, "GameSpecific", "PH_SZFar"}, 0};
-const ConfigInfo<std::string> GFX_PROJECTION_HACK_ZNEAR{{System::GFX, "GameSpecific", "PH_ZNear"},
-                                                        ""};
-const ConfigInfo<std::string> GFX_PROJECTION_HACK_ZFAR{{System::GFX, "GameSpecific", "PH_ZFar"},
-                                                       ""};
 const ConfigInfo<bool> GFX_PERF_QUERIES_ENABLE{{System::GFX, "GameSpecific", "PerfQueriesEnable"},
                                                false};
 }  // namespace Config

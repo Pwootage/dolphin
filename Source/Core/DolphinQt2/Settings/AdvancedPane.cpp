@@ -16,15 +16,17 @@
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/HW/SystemTimers.h"
+
 #include "DolphinQt2/Settings.h"
 
 AdvancedPane::AdvancedPane(QWidget* parent) : QWidget(parent)
 {
   CreateLayout();
+  Update();
+
   ConnectLayout();
 
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, &AdvancedPane::Update);
-  Update();
 }
 
 void AdvancedPane::CreateLayout()
@@ -70,6 +72,11 @@ void AdvancedPane::CreateLayout()
   rtc_options->layout()->addWidget(m_custom_rtc_checkbox);
 
   m_custom_rtc_datetime = new QDateTimeEdit();
+
+  // Show seconds
+  m_custom_rtc_datetime->setDisplayFormat(m_custom_rtc_datetime->displayFormat().replace(
+      QStringLiteral("mm"), QStringLiteral("mm:ss")));
+
   if (!m_custom_rtc_datetime->displayFormat().contains(QStringLiteral("yyyy")))
   {
     // Always show the full year, no matter what the locale specifies. Otherwise, two-digit years
@@ -124,10 +131,9 @@ void AdvancedPane::ConnectLayout()
 void AdvancedPane::Update()
 {
   const bool running = Core::GetState() != Core::State::Uninitialized;
-  const bool enable_cpu_clock_override_widgets = SConfig::GetInstance().m_OCEnable && !running;
+  const bool enable_cpu_clock_override_widgets = SConfig::GetInstance().m_OCEnable;
   const bool enable_custom_rtc_widgets = SConfig::GetInstance().bEnableCustomRTC && !running;
 
-  m_cpu_clock_override_checkbox->setEnabled(!running);
   m_cpu_clock_override_slider->setEnabled(enable_cpu_clock_override_widgets);
   m_cpu_clock_override_slider_label->setEnabled(enable_cpu_clock_override_widgets);
 

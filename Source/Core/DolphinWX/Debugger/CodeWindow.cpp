@@ -37,6 +37,7 @@
 #include "Core/PowerPC/BreakPoints.h"
 #include "Core/PowerPC/Gekko.h"
 #include "Core/PowerPC/JitInterface.h"
+#include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
 #include "Core/PowerPC/PPCTables.h"
 #include "Core/PowerPC/PowerPC.h"
@@ -177,6 +178,13 @@ void CCodeWindow::OnHostMessage(wxCommandEvent& event)
 
   case IDM_UPDATE_JIT_PANE:
     RequirePanel<CJitWindow>()->ViewAddr(codeview->GetSelection());
+    break;
+
+  case IDM_RELOAD_THEME_BITMAPS:
+    if (HasPanel<CBreakPointWindow>())
+      GetPanel<CBreakPointWindow>()->ReloadBitmaps();
+    if (HasPanel<CWatchWindow>())
+      GetPanel<CWatchWindow>()->ReloadBitmaps();
     break;
   }
 }
@@ -346,7 +354,7 @@ static bool WillInstructionReturn(UGeckoInstruction inst)
   if (inst.hex == 0x4C000064u)
     return true;
   bool counter = (inst.BO_2 >> 2 & 1) != 0 || (CTR != 0) != ((inst.BO_2 >> 1 & 1) != 0);
-  bool condition = inst.BO_2 >> 4 != 0 || GetCRBit(inst.BI_2) == (inst.BO_2 >> 3 & 1);
+  bool condition = inst.BO_2 >> 4 != 0 || PowerPC::GetCRBit(inst.BI_2) == (inst.BO_2 >> 3 & 1);
   bool isBclr = inst.OPCD_7 == 0b010011 && (inst.hex >> 1 & 0b10000) != 0;
   return isBclr && counter && condition && !inst.LK_3;
 }
@@ -426,14 +434,14 @@ void CCodeWindow::UpdateLists()
 {
   callers->Clear();
   u32 addr = codeview->GetSelection();
-  Symbol* symbol = g_symbolDB.GetSymbolFromAddr(addr);
+  Common::Symbol* symbol = g_symbolDB.GetSymbolFromAddr(addr);
   if (!symbol)
     return;
 
   for (auto& call : symbol->callers)
   {
-    u32 caller_addr = call.callAddress;
-    Symbol* caller_symbol = g_symbolDB.GetSymbolFromAddr(caller_addr);
+    u32 caller_addr = call.call_address;
+    Common::Symbol* caller_symbol = g_symbolDB.GetSymbolFromAddr(caller_addr);
     if (caller_symbol)
     {
       int idx = callers->Append(StrToWxStr(
@@ -446,7 +454,7 @@ void CCodeWindow::UpdateLists()
   for (auto& call : symbol->calls)
   {
     u32 call_addr = call.function;
-    Symbol* call_symbol = g_symbolDB.GetSymbolFromAddr(call_addr);
+    Common::Symbol* call_symbol = g_symbolDB.GetSymbolFromAddr(call_addr);
     if (call_symbol)
     {
       int idx = calls->Append(StrToWxStr(

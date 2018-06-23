@@ -31,8 +31,8 @@
 #include "Core/IOS/Device.h"
 #include "Core/IOS/DeviceStub.h"
 #include "Core/IOS/ES/ES.h"
-#include "Core/IOS/FS/FS.h"
-#include "Core/IOS/FS/FileIO.h"
+#include "Core/IOS/FS/FileSystem.h"
+#include "Core/IOS/FS/FileSystemProxy.h"
 #include "Core/IOS/MIOS.h"
 #include "Core/IOS/Network/IP/Top.h"
 #include "Core/IOS/Network/KD/NetKDRequest.h"
@@ -180,7 +180,7 @@ Kernel::Kernel()
 {
   // Until the Wii root and NAND path stuff is entirely managed by IOS and made non-static,
   // using more than one IOS instance at a time is not supported.
-  _assert_(GetIOS() == nullptr);
+  ASSERT(GetIOS() == nullptr);
   Core::InitializeWiiRoot(false);
   m_is_responsible_for_nand_root = true;
   AddCoreDevices();
@@ -188,14 +188,6 @@ Kernel::Kernel()
 
 Kernel::~Kernel()
 {
-  // Close all devices that were opened
-  for (auto& device : m_fdmap)
-  {
-    if (!device)
-      continue;
-    device->Close(0);
-  }
-
   {
     std::lock_guard<std::mutex> lock(m_device_map_mutex);
     m_device_map.clear();
@@ -242,9 +234,9 @@ u32 Kernel::GetVersion() const
   return static_cast<u32>(m_title_id);
 }
 
-std::shared_ptr<Device::FS> Kernel::GetFS()
+std::shared_ptr<FS::FileSystem> Kernel::GetFS()
 {
-  return std::static_pointer_cast<Device::FS>(m_device_map.at("/dev/fs"));
+  return m_fs;
 }
 
 std::shared_ptr<Device::ES> Kernel::GetES()
@@ -274,11 +266,27 @@ u16 Kernel::GetGidForPPC() const
   return m_ppc_gid;
 }
 
+static std::vector<u8> ReadBootContent(FS::FileSystem* fs, const std::string& path, size_t max_size)
+{
+  const auto file = fs->OpenFile(0, 0, path, FS::Mode::Read);
+  if (!file)
+    return {};
+
+  const size_t file_size = file->GetStatus()->size;
+  if (max_size != 0 && file_size > max_size)
+    return {};
+
+  std::vector<u8> buffer(file_size);
+  if (!file->Read(buffer.data(), buffer.size()))
+    return {};
+  return buffer;
+}
+
 // This corresponds to syscall 0x41, which loads a binary from the NAND and bootstraps the PPC.
 // Unlike 0x42, IOS will set up some constants in memory before booting the PPC.
 bool Kernel::BootstrapPPC(const std::string& boot_content_path)
 {
-  const DolReader dol{boot_content_path};
+  const DolReader dol{ReadBootContent(m_fs.get(), boot_content_path, 0)};
 
   if (!dol.IsValid())
     return false;
@@ -292,7 +300,7 @@ bool Kernel::BootstrapPPC(const std::string& boot_content_path)
   // NAND titles start with address translation off at 0x3400 (via the PPC bootstub)
   // The state of other CPU registers (like the BAT registers) doesn't matter much
   // because the realmode code at 0x3400 initializes everything itself anyway.
-  MSR = 0;
+  MSR.Hex = 0;
   PC = 0x3400;
 
   return true;
@@ -318,6 +326,7 @@ struct ARMBinary final
   u32 GetHeaderSize() const { return Common::swap32(m_bytes.data()); }
   u32 GetElfOffset() const { return Common::swap32(m_bytes.data() + 0x4); }
   u32 GetElfSize() const { return Common::swap32(m_bytes.data() + 0x8); }
+
 private:
   std::vector<u8> m_bytes;
 };
@@ -336,16 +345,7 @@ bool Kernel::BootIOS(const u64 ios_title_id, const std::string& boot_content_pat
     // Load the ARM binary to memory (if possible).
     // Because we do not actually emulate the Starlet, only load the sections that are in MEM1.
 
-    File::IOFile file{boot_content_path, "rb"};
-    // TODO: should return IPC_ERROR_MAX.
-    if (file.GetSize() > 0xB00000)
-      return false;
-
-    std::vector<u8> data(file.GetSize());
-    if (!file.ReadBytes(data.data(), data.size()))
-      return false;
-
-    ARMBinary binary{std::move(data)};
+    ARMBinary binary{ReadBootContent(m_fs.get(), boot_content_path, 0xB00000)};
     if (!binary.IsValid())
       return false;
 
@@ -362,12 +362,15 @@ bool Kernel::BootIOS(const u64 ios_title_id, const std::string& boot_content_pat
 
 void Kernel::AddDevice(std::unique_ptr<Device::Device> device)
 {
-  _assert_(device->GetDeviceType() == Device::Device::DeviceType::Static);
+  ASSERT(device->GetDeviceType() == Device::Device::DeviceType::Static);
   m_device_map[device->GetDeviceName()] = std::move(device);
 }
 
 void Kernel::AddCoreDevices()
 {
+  m_fs = FS::MakeFileSystem();
+  ASSERT(m_fs);
+
   std::lock_guard<std::mutex> lock(m_device_map_mutex);
   AddDevice(std::make_unique<Device::FS>(*this, "/dev/fs"));
   AddDevice(std::make_unique<Device::ES>(*this, "/dev/es"));
@@ -468,14 +471,14 @@ std::shared_ptr<Device::Device> EmulationKernel::GetDeviceByName(const std::stri
 }
 
 // Returns the FD for the newly opened device (on success) or an error code.
-s32 Kernel::OpenDevice(OpenRequest& request)
+IPCCommandResult Kernel::OpenDevice(OpenRequest& request)
 {
   const s32 new_fd = GetFreeDeviceID();
   INFO_LOG(IOS, "Opening %s (mode %d, fd %d)", request.path.c_str(), request.flags, new_fd);
   if (new_fd < 0 || new_fd >= IPC_MAX_FDS)
   {
     ERROR_LOG(IOS, "Couldn't get a free fd, too many open files");
-    return FS_EFDEXHAUSTED;
+    return IPCCommandResult{IPC_EMAX, true, 5000 * SystemTimers::TIMER_RATIO};
   }
   request.fd = new_fd;
 
@@ -491,34 +494,38 @@ s32 Kernel::OpenDevice(OpenRequest& request)
   }
   else if (request.path.find('/') == 0)
   {
-    device = std::make_shared<Device::FileIO>(*this, request.path);
+    device = GetDeviceByName("/dev/fs");
   }
 
   if (!device)
   {
     ERROR_LOG(IOS, "Unknown device: %s", request.path.c_str());
-    return IPC_ENOENT;
+    return {IPC_ENOENT, true, 3700 * SystemTimers::TIMER_RATIO};
   }
 
-  const ReturnCode code = device->Open(request);
-  if (code < IPC_SUCCESS)
-    return code;
-  m_fdmap[new_fd] = device;
-  return new_fd;
+  IPCCommandResult result = device->Open(request);
+  if (result.return_value >= IPC_SUCCESS)
+  {
+    m_fdmap[new_fd] = device;
+    result.return_value = new_fd;
+  }
+  return result;
 }
 
 IPCCommandResult Kernel::HandleIPCCommand(const Request& request)
 {
+  if (request.command < IPC_CMD_OPEN || request.command > IPC_CMD_IOCTLV)
+    return IPCCommandResult{IPC_EINVAL, true, 978 * SystemTimers::TIMER_RATIO};
+
   if (request.command == IPC_CMD_OPEN)
   {
     OpenRequest open_request{request.address};
-    const s32 new_fd = OpenDevice(open_request);
-    return Device::Device::GetDefaultReply(new_fd);
+    return OpenDevice(open_request);
   }
 
   const auto device = (request.fd < IPC_MAX_FDS) ? m_fdmap[request.fd] : nullptr;
   if (!device)
-    return Device::Device::GetDefaultReply(IPC_EINVAL);
+    return IPCCommandResult{IPC_EINVAL, true, 550 * SystemTimers::TIMER_RATIO};
 
   IPCCommandResult ret;
   u64 wall_time_before = Common::Timer::GetTimeUs();
@@ -527,7 +534,7 @@ IPCCommandResult Kernel::HandleIPCCommand(const Request& request)
   {
   case IPC_CMD_CLOSE:
     m_fdmap[request.fd].reset();
-    ret = Device::Device::GetDefaultReply(device->Close(request.fd));
+    ret = device->Close(request.fd);
     break;
   case IPC_CMD_READ:
     ret = device->Read(ReadWriteRequest{request.address});
@@ -545,8 +552,8 @@ IPCCommandResult Kernel::HandleIPCCommand(const Request& request)
     ret = device->IOCtlV(IOCtlVRequest{request.address});
     break;
   default:
-    _assert_msg_(IOS, false, "Unexpected command: %x", request.command);
-    ret = Device::Device::GetDefaultReply(IPC_EINVAL);
+    ASSERT_MSG(IOS, false, "Unexpected command: %x", request.command);
+    ret = IPCCommandResult{IPC_EINVAL, true, 978 * SystemTimers::TIMER_RATIO};
     break;
   }
 
@@ -581,7 +588,11 @@ void Kernel::ExecuteIPCCommand(const u32 address)
 // Happens AS SOON AS IPC gets a new pointer!
 void Kernel::EnqueueIPCRequest(u32 address)
 {
-  CoreTiming::ScheduleEvent(1000, s_event_enqueue, address | ENQUEUE_REQUEST_FLAG);
+  // Based on hardware tests, IOS takes between 5µs and 10µs to acknowledge an IPC request.
+  // Console 1: 456 TB ticks before ACK
+  // Console 2: 658 TB ticks before ACK
+  CoreTiming::ScheduleEvent(500 * SystemTimers::TIMER_RATIO, s_event_enqueue,
+                            address | ENQUEUE_REQUEST_FLAG);
 }
 
 // Called to send a reply to an IOS syscall
@@ -614,8 +625,6 @@ void Kernel::HandleIPCEvent(u64 userdata)
   UpdateIPC();
 }
 
-// This is called every IPC_HLE_PERIOD from SystemTimers.cpp
-// Takes care of routing ipc <-> ipc HLE
 void Kernel::UpdateIPC()
 {
   if (!IsReady())
@@ -623,6 +632,7 @@ void Kernel::UpdateIPC()
 
   if (m_request_queue.size())
   {
+    ClearX1();
     GenerateAck(m_request_queue.front());
     u32 command = m_request_queue.front();
     m_request_queue.pop_front();
@@ -684,6 +694,7 @@ void Kernel::DoState(PointerWrap& p)
   p.Do(m_ppc_gid);
 
   m_iosc.DoState(p);
+  m_fs->DoState(p);
 
   if (m_title_id == Titles::MIOS)
     return;
@@ -718,10 +729,6 @@ void Kernel::DoState(PointerWrap& p)
           m_fdmap[i] = GetDeviceByName(device_name);
           break;
         }
-        case Device::Device::DeviceType::FileIO:
-          m_fdmap[i] = std::make_shared<Device::FileIO>(*this, "");
-          m_fdmap[i]->DoState(p);
-          break;
         case Device::Device::DeviceType::OH0:
           m_fdmap[i] = std::make_shared<Device::OH0Device>(*this, "");
           m_fdmap[i]->DoState(p);

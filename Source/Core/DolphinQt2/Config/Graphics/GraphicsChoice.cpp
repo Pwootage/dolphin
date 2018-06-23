@@ -5,6 +5,7 @@
 #include "DolphinQt2/Config/Graphics/GraphicsChoice.h"
 
 #include "Common/Config/Config.h"
+
 #include "DolphinQt2/Settings.h"
 
 GraphicsChoice::GraphicsChoice(const QStringList& options, const Config::ConfigInfo<int>& setting)
@@ -19,6 +20,10 @@ GraphicsChoice::GraphicsChoice(const QStringList& options, const Config::ConfigI
     QFont bf = font();
     bf.setBold(Config::GetActiveLayerForConfig(m_setting) != Config::LayerType::Base);
     setFont(bf);
+
+    bool old = blockSignals(true);
+    setCurrentIndex(Config::Get(m_setting));
+    blockSignals(old);
   });
 }
 

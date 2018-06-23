@@ -27,21 +27,6 @@
 #define DOLPHIN_DATA_DIR "dolphin-emu"
 #endif
 
-// Shared data dirs (Sys and shared User for Linux)
-#if defined(_WIN32) || defined(LINUX_LOCAL_DEV)
-#define SYSDATA_DIR "Sys"
-#elif defined __APPLE__
-#define SYSDATA_DIR "Contents/Resources/Sys"
-#elif defined ANDROID
-#define SYSDATA_DIR "/sdcard/dolphin-emu"
-#else
-#ifdef DATA_DIR
-#define SYSDATA_DIR DATA_DIR "sys"
-#else
-#define SYSDATA_DIR "sys"
-#endif
-#endif
-
 // Dirs in both User and Sys
 #define EUR_DIR "EUR"
 #define USA_DIR "USA"
@@ -62,6 +47,7 @@
 #define DUMP_DIR "Dump"
 #define DUMP_TEXTURES_DIR "Textures"
 #define DUMP_FRAMES_DIR "Frames"
+#define DUMP_OBJECTS_DIR "Objects"
 #define DUMP_AUDIO_DIR "Audio"
 #define DUMP_DSP_DIR "DSP"
 #define DUMP_SSL_DIR "SSL"
@@ -72,6 +58,7 @@
 #define WII_WC24CONF_DIR "shared2" DIR_SEP "wc24"
 #define RESOURCES_DIR "Resources"
 #define THEMES_DIR "Themes"
+#define STYLES_DIR "Styles"
 #define ANAGLYPH_DIR "Anaglyph"
 #define PIPES_DIR "Pipes"
 #define MEMORYWATCHER_DIR "MemoryWatcher"
@@ -93,7 +80,6 @@
 #define GFX_CONFIG "GFX.ini"
 #define DEBUGGER_CONFIG "Debugger.ini"
 #define LOGGER_CONFIG "Logger.ini"
-#define UI_CONFIG "UI.ini"
 
 // Files in the directory returned by GetUserPath(D_LOGS_IDX)
 #define MAIN_LOG "dolphin.log"

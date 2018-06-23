@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <zlib.h>
@@ -39,7 +40,11 @@
 #include "Core/HW/Memmap.h"
 #include "Core/HW/VideoInterface.h"
 #include "Core/Host.h"
+#include "Core/IOS/ES/ES.h"
+#include "Core/IOS/FS/FileSystem.h"
 #include "Core/IOS/IOS.h"
+#include "Core/IOS/IOSC.h"
+#include "Core/IOS/Uids.h"
 #include "Core/PatchEngine.h"
 #include "Core/PowerPC/PPCAnalyst.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
@@ -48,13 +53,17 @@
 #include "DiscIO/Enums.h"
 #include "DiscIO/Volume.h"
 
-BootParameters::BootParameters(Parameters&& parameters_) : parameters(std::move(parameters_))
+BootParameters::BootParameters(Parameters&& parameters_,
+                               const std::optional<std::string>& savestate_path_)
+    : parameters(std::move(parameters_)), savestate_path(savestate_path_)
 {
 }
 
-std::unique_ptr<BootParameters> BootParameters::GenerateFromFile(const std::string& path)
+std::unique_ptr<BootParameters>
+BootParameters::GenerateFromFile(const std::string& path,
+                                 const std::optional<std::string>& savestate_path)
 {
-  const bool is_drive = cdio_is_cdrom(path);
+  const bool is_drive = Common::IsCDROMDevice(path);
   // Check if the file exist, we may have gotten it from a --elf command line
   // that gave an incorrect file name
   if (!is_drive && !File::Exists(path))
@@ -73,13 +82,19 @@ std::unique_ptr<BootParameters> BootParameters::GenerateFromFile(const std::stri
   {
     std::unique_ptr<DiscIO::Volume> volume = DiscIO::CreateVolumeFromFilename(path);
     if (volume)
-      return std::make_unique<BootParameters>(Disc{path, std::move(volume)});
+      return std::make_unique<BootParameters>(Disc{path, std::move(volume)}, savestate_path);
 
     if (extension == ".elf")
-      return std::make_unique<BootParameters>(Executable{path, std::make_unique<ElfReader>(path)});
+    {
+      return std::make_unique<BootParameters>(Executable{path, std::make_unique<ElfReader>(path)},
+                                              savestate_path);
+    }
 
     if (extension == ".dol")
-      return std::make_unique<BootParameters>(Executable{path, std::make_unique<DolReader>(path)});
+    {
+      return std::make_unique<BootParameters>(Executable{path, std::make_unique<DolReader>(path)},
+                                              savestate_path);
+    }
 
     if (is_drive)
     {
@@ -97,10 +112,10 @@ std::unique_ptr<BootParameters> BootParameters::GenerateFromFile(const std::stri
   }
 
   if (extension == ".dff")
-    return std::make_unique<BootParameters>(DFF{path});
+    return std::make_unique<BootParameters>(DFF{path}, savestate_path);
 
   if (extension == ".wad")
-    return std::make_unique<BootParameters>(DiscIO::WiiWAD{path});
+    return std::make_unique<BootParameters>(DiscIO::WiiWAD{path}, savestate_path);
 
   PanicAlertT("Could not recognize file %s", path.c_str());
   return {};
@@ -235,12 +250,12 @@ bool CBoot::Load_BS2(const std::string& boot_rom_filename)
     break;
   default:
     PanicAlertT("IPL with unknown hash %x", ipl_hash);
-    ipl_region = DiscIO::Region::UNKNOWN_REGION;
+    ipl_region = DiscIO::Region::Unknown;
     break;
   }
 
   const DiscIO::Region boot_region = SConfig::GetInstance().m_region;
-  if (ipl_region != DiscIO::Region::UNKNOWN_REGION && boot_region != ipl_region)
+  if (ipl_region != DiscIO::Region::Unknown && boot_region != ipl_region)
     PanicAlertT("%s IPL found in %s directory. The disc might not be recognized",
                 SConfig::GetDirectoryForRegion(ipl_region),
                 SConfig::GetDirectoryForRegion(boot_region));
@@ -259,10 +274,9 @@ bool CBoot::Load_BS2(const std::string& boot_rom_filename)
   PowerPC::ppcState.gpr[4] = 0x00002030;
   PowerPC::ppcState.gpr[5] = 0x0000009c;
 
-  UReg_MSR& m_MSR = ((UReg_MSR&)PowerPC::ppcState.msr);
-  m_MSR.FP = 1;
-  m_MSR.DR = 1;
-  m_MSR.IR = 1;
+  MSR.FP = 1;
+  MSR.DR = 1;
+  MSR.IR = 1;
 
   PowerPC::ppcState.spr[SPR_HID0] = 0x0011c464;
   PowerPC::ppcState.spr[SPR_IBAT3U] = 0xfff0001f;
@@ -280,6 +294,18 @@ static void SetDefaultDisc()
   const SConfig& config = SConfig::GetInstance();
   if (!config.m_strDefaultISO.empty())
     SetDisc(DiscIO::CreateVolumeFromFilename(config.m_strDefaultISO));
+}
+
+static void CopyDefaultExceptionHandlers()
+{
+  constexpr u32 EXCEPTION_HANDLER_ADDRESSES[] = {0x00000100, 0x00000200, 0x00000300, 0x00000400,
+                                                 0x00000500, 0x00000600, 0x00000700, 0x00000800,
+                                                 0x00000900, 0x00000C00, 0x00000D00, 0x00000F00,
+                                                 0x00001300, 0x00001400, 0x00001700};
+
+  constexpr u32 RFI_INSTRUCTION = 0x4C000064;
+  for (const u32 address : EXCEPTION_HANDLER_ADDRESSES)
+    Memory::Write_U32(RFI_INSTRUCTION, address);
 }
 
 // Third boot step after BootManager and Core. See Call schedule in BootManager.cpp
@@ -332,13 +358,20 @@ bool CBoot::BootUp(std::unique_ptr<BootParameters> boot)
 
       SetupMSR();
       SetupBAT(config.bWii);
+      CopyDefaultExceptionHandlers();
 
       if (config.bWii)
       {
-        HID4.SBE = 1;
+        PowerPC::ppcState.spr[SPR_HID0] = 0x0011c464;
+        PowerPC::ppcState.spr[SPR_HID4] = 0x82000000;
+
+        // Set a value for the SP. It doesn't matter where this points to,
+        // as long as it is a valid location. This value is taken from a homebrew binary.
+        PowerPC::ppcState.gpr[1] = 0x8004d4bc;
+
         // Because there is no TMD to get the requested system (IOS) version from,
         // we default to IOS58, which is the version used by the Homebrew Channel.
-        SetupWiiMemory();
+        SetupWiiMemory(IOS::HLE::IOSC::ConsoleType::Retail);
         IOS::HLE::GetIOS()->BootIOS(Titles::IOS(58));
       }
       else
@@ -425,7 +458,7 @@ BootExecutableReader::BootExecutableReader(File::IOFile file)
   file.ReadBytes(m_bytes.data(), m_bytes.size());
 }
 
-BootExecutableReader::BootExecutableReader(const std::vector<u8>& bytes) : m_bytes(bytes)
+BootExecutableReader::BootExecutableReader(std::vector<u8> bytes) : m_bytes(std::move(bytes))
 {
 }
 
@@ -442,26 +475,28 @@ void StateFlags::UpdateChecksum()
 
 void UpdateStateFlags(std::function<void(StateFlags*)> update_function)
 {
-  const std::string file_path =
-      Common::GetTitleDataPath(Titles::SYSTEM_MENU, Common::FROM_SESSION_ROOT) + WII_STATE;
+  CreateSystemMenuTitleDirs();
+  const std::string file_path = Common::GetTitleDataPath(Titles::SYSTEM_MENU) + "/" WII_STATE;
+  const auto fs = IOS::HLE::GetIOS()->GetFS();
+  constexpr IOS::HLE::FS::Mode rw_mode = IOS::HLE::FS::Mode::ReadWrite;
+  const auto file = fs->CreateAndOpenFile(IOS::SYSMENU_UID, IOS::SYSMENU_GID, file_path,
+                                          {rw_mode, rw_mode, rw_mode});
+  if (!file)
+    return;
 
-  File::IOFile file;
-  StateFlags state;
-  if (File::Exists(file_path))
-  {
-    file.Open(file_path, "r+b");
-    file.ReadBytes(&state, sizeof(state));
-  }
-  else
-  {
-    File::CreateFullPath(file_path);
-    file.Open(file_path, "a+b");
-    memset(&state, 0, sizeof(state));
-  }
+  StateFlags state{};
+  if (file->GetStatus()->size == sizeof(StateFlags))
+    file->Read(&state, 1);
 
   update_function(&state);
   state.UpdateChecksum();
 
-  file.Seek(0, SEEK_SET);
-  file.WriteBytes(&state, sizeof(state));
+  file->Seek(0, IOS::HLE::FS::SeekMode::Set);
+  file->Write(&state, 1);
+}
+
+void CreateSystemMenuTitleDirs()
+{
+  const auto es = IOS::HLE::GetIOS()->GetES();
+  es->CreateTitleDirectories(Titles::SYSTEM_MENU, IOS::SYSMENU_GID);
 }

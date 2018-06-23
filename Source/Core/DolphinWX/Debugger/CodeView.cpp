@@ -26,8 +26,8 @@
 #include "Common/SymbolDB.h"
 #include "Core/Core.h"
 #include "Core/Host.h"
+#include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PPCAnalyst.h"
-#include "Core/PowerPC/PowerPC.h"
 #include "DolphinWX/Debugger/AssemblerEntryDialog.h"
 #include "DolphinWX/Debugger/CodeView.h"
 #include "DolphinWX/Debugger/DebuggerUIUtil.h"
@@ -45,6 +45,7 @@ enum
   IDM_INSERTBLR,
   IDM_INSERTNOP,
   IDM_ASSEMBLE,
+  IDM_RESTORE,
   IDM_RUNTOHERE,
   IDM_JITRESULTS,
   IDM_FOLLOWBRANCH,
@@ -56,7 +57,7 @@ enum
   IDM_ADDFUNCTION,
 };
 
-CCodeView::CCodeView(DebugInterface* debuginterface, SymbolDB* symboldb, wxWindow* parent,
+CCodeView::CCodeView(DebugInterface* debuginterface, Common::SymbolDB* symboldb, wxWindow* parent,
                      wxWindowID Id)
     : wxControl(parent, Id), m_debugger(debuginterface), m_symbol_db(symboldb), m_plain(false),
       m_curAddress(debuginterface->GetPC()), m_align(debuginterface->GetInstructionSize(0)),
@@ -201,36 +202,10 @@ u32 CCodeView::AddrToBranch(u32 addr)
   return 0;
 }
 
-void CCodeView::InsertBlrNop(int Blr)
+void CCodeView::InsertBlrNop(int blr)
 {
-  // Check if this address has been modified
-  int find = -1;
-  for (u32 i = 0; i < m_blrList.size(); i++)
-  {
-    if (m_blrList.at(i).address == m_selection)
-    {
-      find = i;
-      break;
-    }
-  }
-
-  // Save the old value
-  if (find >= 0)
-  {
-    m_debugger->WriteExtraMemory(0, m_blrList.at(find).oldValue, m_selection);
-    m_blrList.erase(m_blrList.begin() + find);
-  }
-  else
-  {
-    BlrStruct temp;
-    temp.address = m_selection;
-    temp.oldValue = m_debugger->ReadMemory(m_selection);
-    m_blrList.push_back(temp);
-    if (Blr == 0)
-      m_debugger->Patch(m_selection, 0x4e800020);
-    else
-      m_debugger->Patch(m_selection, 0x60000000);
-  }
+  m_debugger->UnsetPatch(m_selection);
+  m_debugger->SetPatch(m_selection, (blr == 0) ? 0x4e800020 : 0x60000000);
   Refresh();
 }
 
@@ -268,7 +243,7 @@ void CCodeView::OnPopupMenu(wxCommandEvent& event)
 
   case IDM_COPYFUNCTION:
   {
-    Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
+    Common::Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
     if (symbol)
     {
       std::string text;
@@ -320,12 +295,18 @@ void CCodeView::OnPopupMenu(wxCommandEvent& event)
       unsigned long code;
       if (dialog.GetValue().ToULong(&code, 0) && code <= std::numeric_limits<u32>::max())
       {
-        m_debugger->Patch(m_selection, code);
+        m_debugger->UnsetPatch(m_selection);
+        m_debugger->SetPatch(m_selection, code);
         Refresh();
       }
     }
     break;
   }
+
+  case IDM_RESTORE:
+    m_debugger->UnsetPatch(m_selection);
+    Refresh();
+    break;
 
   case IDM_JITRESULTS:
   {
@@ -354,7 +335,7 @@ void CCodeView::OnPopupMenu(wxCommandEvent& event)
 
   case IDM_RENAMESYMBOL:
   {
-    Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
+    Common::Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
     if (symbol)
     {
       wxTextEntryDialog input_symbol(this, _("Rename symbol:"), wxGetTextFromUserPromptStr,
@@ -371,7 +352,7 @@ void CCodeView::OnPopupMenu(wxCommandEvent& event)
 
   case IDM_SETSYMBOLSIZE:
   {
-    Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
+    Common::Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
     if (!symbol)
       break;
 
@@ -394,7 +375,7 @@ void CCodeView::OnPopupMenu(wxCommandEvent& event)
 
   case IDM_SETSYMBOLEND:
   {
-    Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
+    Common::Symbol* symbol = m_symbol_db->GetSymbolFromAddr(m_selection);
     if (!symbol)
       break;
 
@@ -450,7 +431,9 @@ void CCodeView::OnMouseUpR(wxMouseEvent& event)
   menu.Append(IDM_JITRESULTS, _("PPC vs x86"))->Enable(Core::IsRunning());
   menu.Append(IDM_INSERTBLR, _("&Insert blr"))->Enable(Core::IsRunning());
   menu.Append(IDM_INSERTNOP, _("Insert &nop"))->Enable(Core::IsRunning());
-  menu.Append(IDM_ASSEMBLE, _("Re&place Instruction"))->Enable(Core::IsRunning());
+  menu.Append(IDM_ASSEMBLE, _("Re&place instruction"))->Enable(Core::IsRunning());
+  menu.Append(IDM_RESTORE, _("Restore instruction"))
+      ->Enable(Core::IsRunning() && m_debugger->HasEnabledPatch(m_selection));
   // menu.Append(IDM_PATCHALERT, _("Patch alert"))->Enable(Core::IsRunning());
   PopupMenu(&menu);
   event.Skip();

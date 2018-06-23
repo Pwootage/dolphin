@@ -1,8 +1,10 @@
-set(SRCS
+add_library(videoogl
   BoundingBox.cpp
   FramebufferManager.cpp
   main.cpp
   NativeVertexFormat.cpp
+  OGLPipeline.cpp
+  OGLShader.cpp
   OGLTexture.cpp
   PerfQuery.cpp
   PostProcessing.cpp
@@ -16,15 +18,11 @@ set(SRCS
   VertexManager.cpp
 )
 
-set(LIBS ${LIBS}
-  videocommon
-  SOIL
+target_link_libraries(videoogl
+PUBLIC
   common
+  videocommon
+
+PRIVATE
   ${X11_LIBRARIES}
 )
-
-if(${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD|NetBSD")
-  set(LIBS ${LIBS} usbhid)
-endif()
-
-add_dolphin_library(videoogl "${SRCS}" "${LIBS}")

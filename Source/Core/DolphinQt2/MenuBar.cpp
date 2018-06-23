@@ -9,6 +9,8 @@
 #include <QAction>
 #include <QDesktopServices>
 #include <QFileDialog>
+#include <QFontDialog>
+#include <QInputDialog>
 #include <QMap>
 #include <QMessageBox>
 #include <QUrl>
@@ -17,14 +19,25 @@
 #include "Common/FileUtil.h"
 #include "Common/StringUtil.h"
 
+#include "Common/CDUtils.h"
+#include "Core/Boot/Boot.h"
 #include "Core/CommonTitles.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
-#include "Core/HW/WiiSaveCrypted.h"
+#include "Core/Debugger/RSO.h"
+#include "Core/HLE/HLE.h"
+#include "Core/HW/WiiSave.h"
 #include "Core/HW/Wiimote.h"
 #include "Core/IOS/ES/ES.h"
 #include "Core/IOS/IOS.h"
+#include "Core/IOS/USB/Bluetooth/BTEmu.h"
 #include "Core/Movie.h"
+#include "Core/PowerPC/JitInterface.h"
+#include "Core/PowerPC/MMU.h"
+#include "Core/PowerPC/PPCAnalyst.h"
+#include "Core/PowerPC/PPCSymbolDB.h"
+#include "Core/PowerPC/PowerPC.h"
+#include "Core/PowerPC/SignatureDB/SignatureDB.h"
 #include "Core/State.h"
 #include "Core/TitleDatabase.h"
 #include "Core/WiiUtils.h"
@@ -33,9 +46,12 @@
 #include "DiscIO/WiiSaveBanner.h"
 
 #include "DolphinQt2/AboutDialog.h"
-#include "DolphinQt2/GameList/GameFile.h"
+#include "DolphinQt2/Host.h"
 #include "DolphinQt2/QtUtils/ActionHelper.h"
 #include "DolphinQt2/Settings.h"
+#include "DolphinQt2/Updater.h"
+
+#include "UICommon/GameFile.h"
 
 MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent)
 {
@@ -45,11 +61,17 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent)
   AddOptionsMenu();
   AddToolsMenu();
   AddViewMenu();
+  AddJITMenu();
+  AddSymbolsMenu();
   AddHelpMenu();
 
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
           [=](Core::State state) { OnEmulationStateChanged(state); });
+  connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this,
+          [this] { OnEmulationStateChanged(Core::GetState()); });
+
   OnEmulationStateChanged(Core::GetState());
+  connect(&Settings::Instance(), &Settings::DebugModeToggled, this, &MenuBar::OnDebugModeToggled);
 
   connect(this, &MenuBar::SelectionChanged, this, &MenuBar::OnSelectionChanged);
   connect(this, &MenuBar::RecordingStatusChanged, this, &MenuBar::OnRecordingStatusChanged);
@@ -60,6 +82,10 @@ void MenuBar::OnEmulationStateChanged(Core::State state)
 {
   bool running = state != Core::State::Uninitialized;
   bool playing = running && state != Core::State::Paused;
+
+  // File
+  m_eject_disc->setEnabled(running);
+  m_change_disc->setEnabled(running);
 
   // Emulation
   m_play_action->setEnabled(!playing);
@@ -81,8 +107,72 @@ void MenuBar::OnEmulationStateChanged(Core::State state)
     m_recording_stop->setEnabled(false);
   m_recording_play->setEnabled(!running);
 
+  // Tools
+  m_show_cheat_manager->setEnabled(Settings::Instance().GetCheatsEnabled() && running);
+
+  // JIT
+  m_jit_interpreter_core->setEnabled(running);
+  m_jit_block_linking->setEnabled(!running);
+  m_jit_disable_cache->setEnabled(!running);
+  m_jit_clear_cache->setEnabled(running);
+  m_jit_log_coverage->setEnabled(!running);
+  m_jit_search_instruction->setEnabled(running);
+
+  for (QAction* action :
+       {m_jit_off, m_jit_loadstore_off, m_jit_loadstore_lbzx_off, m_jit_loadstore_lxz_off,
+        m_jit_loadstore_lwz_off, m_jit_loadstore_floating_off, m_jit_loadstore_paired_off,
+        m_jit_floatingpoint_off, m_jit_integer_off, m_jit_paired_off, m_jit_systemregisters_off})
+  {
+    action->setEnabled(running && !playing);
+  }
+
+  // Symbols
+  m_symbols->setEnabled(running);
+
   UpdateStateSlotMenu();
   UpdateToolsMenu(running);
+
+  OnDebugModeToggled(Settings::Instance().IsDebugModeEnabled());
+}
+
+void MenuBar::OnDebugModeToggled(bool enabled)
+{
+  // Options
+  m_boot_to_pause->setVisible(enabled);
+  m_automatic_start->setVisible(enabled);
+  m_change_font->setVisible(enabled);
+
+  // View
+  m_show_code->setVisible(enabled);
+  m_show_registers->setVisible(enabled);
+  m_show_watch->setVisible(enabled);
+  m_show_breakpoints->setVisible(enabled);
+  m_show_memory->setVisible(enabled);
+  m_show_jit->setVisible(enabled);
+
+  if (enabled)
+  {
+    addMenu(m_jit);
+    addMenu(m_symbols);
+  }
+  else
+  {
+    removeAction(m_jit->menuAction());
+    removeAction(m_symbols->menuAction());
+  }
+}
+
+void MenuBar::AddDVDBackupMenu(QMenu* file_menu)
+{
+  m_backup_menu = file_menu->addMenu(tr("&Boot from DVD Backup"));
+
+  const std::vector<std::string> drives = Common::GetCDDevices();
+  // Windows Limitation of 24 character drives
+  for (size_t i = 0; i < drives.size() && i < 24; i++)
+  {
+    auto drive = QString::fromStdString(drives[i]);
+    AddAction(m_backup_menu, drive, this, [this, drive] { emit BootDVDBackup(drive); });
+  }
 }
 
 void MenuBar::AddFileMenu()
@@ -90,6 +180,16 @@ void MenuBar::AddFileMenu()
   QMenu* file_menu = addMenu(tr("&File"));
   m_open_action = AddAction(file_menu, tr("&Open..."), this, &MenuBar::Open,
                             QKeySequence(QStringLiteral("Ctrl+O")));
+
+  file_menu->addSeparator();
+
+  m_change_disc = AddAction(file_menu, tr("Change &Disc..."), this, &MenuBar::ChangeDisc);
+  m_eject_disc = AddAction(file_menu, tr("&Eject Disc"), this, &MenuBar::EjectDisc);
+
+  AddDVDBackupMenu(file_menu);
+
+  file_menu->addSeparator();
+
   m_exit_action = AddAction(file_menu, tr("E&xit"), this, &MenuBar::Exit,
                             QKeySequence(QStringLiteral("Alt+F4")));
 }
@@ -97,6 +197,18 @@ void MenuBar::AddFileMenu()
 void MenuBar::AddToolsMenu()
 {
   QMenu* tools_menu = addMenu(tr("&Tools"));
+
+  AddAction(tools_menu, tr("&Memory Card Manager (GC)"), this,
+            [this] { emit ShowMemcardManager(); });
+
+  m_show_cheat_manager =
+      AddAction(tools_menu, tr("&Cheats Manager"), this, [this] { emit ShowCheatsManager(); });
+
+  connect(&Settings::Instance(), &Settings::EnableCheatsChanged, [this](bool enabled) {
+    m_show_cheat_manager->setEnabled(Core::GetState() != Core::State::Uninitialized && enabled);
+  });
+
+  tools_menu->addSeparator();
 
   AddAction(tools_menu, tr("Import Wii Save..."), this, &MenuBar::ImportWiiSave);
   AddAction(tools_menu, tr("Export All Wii Saves"), this, &MenuBar::ExportWiiSaves);
@@ -146,6 +258,24 @@ void MenuBar::AddToolsMenu()
             [this] { emit PerformOnlineUpdate("KOR"); });
   AddAction(m_perform_online_update_menu, tr("United States"), this,
             [this] { emit PerformOnlineUpdate("USA"); });
+
+  QMenu* menu = new QMenu(tr("Connect Wii Remotes"));
+
+  tools_menu->addSeparator();
+  tools_menu->addMenu(menu);
+
+  for (int i = 0; i < 4; i++)
+  {
+    m_wii_remotes[i] = AddAction(menu, tr("Connect Wii Remote %1").arg(i + 1), this,
+                                 [this, i] { emit ConnectWiiRemote(i); });
+    m_wii_remotes[i]->setCheckable(true);
+  }
+
+  menu->addSeparator();
+
+  m_wii_remotes[4] =
+      AddAction(menu, tr("Connect Balance Board"), this, [this] { emit ConnectWiiRemote(4); });
+  m_wii_remotes[4]->setCheckable(true);
 }
 
 void MenuBar::AddEmulationMenu()
@@ -249,9 +379,73 @@ void MenuBar::AddViewMenu()
   connect(show_log_config, &QAction::toggled, &Settings::Instance(),
           &Settings::SetLogConfigVisible);
 
+  QAction* show_toolbar = view_menu->addAction(tr("Show &Toolbar"));
+  show_toolbar->setCheckable(true);
+  show_toolbar->setChecked(Settings::Instance().IsToolBarVisible());
+
+  connect(show_toolbar, &QAction::toggled, &Settings::Instance(), &Settings::SetToolBarVisible);
+
   connect(&Settings::Instance(), &Settings::LogVisibilityChanged, show_log, &QAction::setChecked);
   connect(&Settings::Instance(), &Settings::LogConfigVisibilityChanged, show_log_config,
           &QAction::setChecked);
+  connect(&Settings::Instance(), &Settings::ToolBarVisibilityChanged, show_toolbar,
+          &QAction::setChecked);
+
+  QAction* lock_widgets = view_menu->addAction(tr("&Lock Widgets In Place"));
+  lock_widgets->setCheckable(true);
+  lock_widgets->setChecked(Settings::Instance().AreWidgetsLocked());
+
+  connect(lock_widgets, &QAction::toggled, &Settings::Instance(), &Settings::SetWidgetsLocked);
+
+  view_menu->addSeparator();
+
+  m_show_code = view_menu->addAction(tr("&Code"));
+  m_show_code->setCheckable(true);
+  m_show_code->setChecked(Settings::Instance().IsCodeVisible());
+
+  connect(m_show_code, &QAction::toggled, &Settings::Instance(), &Settings::SetCodeVisible);
+  connect(&Settings::Instance(), &Settings::CodeVisibilityChanged, m_show_code,
+          &QAction::setChecked);
+
+  m_show_registers = view_menu->addAction(tr("&Registers"));
+  m_show_registers->setCheckable(true);
+  m_show_registers->setChecked(Settings::Instance().IsRegistersVisible());
+
+  connect(m_show_registers, &QAction::toggled, &Settings::Instance(),
+          &Settings::SetRegistersVisible);
+  connect(&Settings::Instance(), &Settings::RegistersVisibilityChanged, m_show_registers,
+          &QAction::setChecked);
+
+  m_show_watch = view_menu->addAction(tr("&Watch"));
+  m_show_watch->setCheckable(true);
+  m_show_watch->setChecked(Settings::Instance().IsWatchVisible());
+
+  connect(m_show_watch, &QAction::toggled, &Settings::Instance(), &Settings::SetWatchVisible);
+  connect(&Settings::Instance(), &Settings::WatchVisibilityChanged, m_show_watch,
+          &QAction::setChecked);
+
+  m_show_breakpoints = view_menu->addAction(tr("&Breakpoints"));
+  m_show_breakpoints->setCheckable(true);
+  m_show_breakpoints->setChecked(Settings::Instance().IsBreakpointsVisible());
+
+  connect(m_show_breakpoints, &QAction::toggled, &Settings::Instance(),
+          &Settings::SetBreakpointsVisible);
+  connect(&Settings::Instance(), &Settings::BreakpointsVisibilityChanged, m_show_breakpoints,
+          &QAction::setChecked);
+
+  m_show_memory = view_menu->addAction(tr("&Memory"));
+  m_show_memory->setCheckable(true);
+  m_show_memory->setChecked(Settings::Instance().IsMemoryVisible());
+
+  connect(m_show_memory, &QAction::toggled, &Settings::Instance(), &Settings::SetMemoryVisible);
+  connect(&Settings::Instance(), &Settings::MemoryVisibilityChanged, m_show_memory,
+          &QAction::setChecked);
+
+  m_show_jit = view_menu->addAction(tr("&JIT"));
+  m_show_jit->setCheckable(true);
+  m_show_jit->setChecked(Settings::Instance().IsJITVisible());
+  connect(m_show_jit, &QAction::toggled, &Settings::Instance(), &Settings::SetJITVisible);
+  connect(&Settings::Instance(), &Settings::JITVisibilityChanged, m_show_jit, &QAction::setChecked);
 
   view_menu->addSeparator();
 
@@ -261,6 +455,10 @@ void MenuBar::AddViewMenu()
   view_menu->addSeparator();
   AddShowPlatformsMenu(view_menu);
   AddShowRegionsMenu(view_menu);
+
+  view_menu->addSeparator();
+  AddAction(view_menu, tr("Search"), this, &MenuBar::ToggleSearch,
+            QKeySequence(QStringLiteral("Ctrl+F")));
 }
 
 void MenuBar::AddOptionsMenu()
@@ -272,11 +470,52 @@ void MenuBar::AddOptionsMenu()
   AddAction(options_menu, tr("&Audio Settings"), this, &MenuBar::ConfigureAudio);
   AddAction(options_menu, tr("&Controller Settings"), this, &MenuBar::ConfigureControllers);
   AddAction(options_menu, tr("&Hotkey Settings"), this, &MenuBar::ConfigureHotkeys);
+
+  options_menu->addSeparator();
+
+  // Debugging mode only
+  m_boot_to_pause = options_menu->addAction(tr("Boot to Pause"));
+  m_boot_to_pause->setCheckable(true);
+  m_boot_to_pause->setChecked(SConfig::GetInstance().bBootToPause);
+
+  connect(m_boot_to_pause, &QAction::toggled, this,
+          [](bool enable) { SConfig::GetInstance().bBootToPause = enable; });
+
+  m_automatic_start = options_menu->addAction(tr("&Automatic Start"));
+  m_automatic_start->setCheckable(true);
+  m_automatic_start->setChecked(SConfig::GetInstance().bAutomaticStart);
+
+  connect(m_automatic_start, &QAction::toggled, this,
+          [](bool enable) { SConfig::GetInstance().bAutomaticStart = enable; });
+
+  m_change_font = AddAction(options_menu, tr("&Font..."), this, &MenuBar::ChangeDebugFont);
 }
+
+#ifdef _WIN32
+void MenuBar::InstallUpdateManually()
+{
+  auto& track = SConfig::GetInstance().m_auto_update_track;
+  auto previous_value = track;
+
+  track = "dev";
+
+  auto* updater = new Updater(this);
+
+  if (!updater->CheckForUpdate())
+  {
+    QMessageBox::information(
+        this, tr("Update"),
+        tr("You are running the latest version available on this update track"));
+  }
+
+  track = previous_value;
+}
+#endif
 
 void MenuBar::AddHelpMenu()
 {
   QMenu* help_menu = addMenu(tr("&Help"));
+
   QAction* website = help_menu->addAction(tr("&Website"));
   connect(website, &QAction::triggered, this,
           []() { QDesktopServices::openUrl(QUrl(QStringLiteral("https://dolphin-emu.org/"))); });
@@ -288,6 +527,12 @@ void MenuBar::AddHelpMenu()
   connect(github, &QAction::triggered, this, []() {
     QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/dolphin-emu/dolphin")));
   });
+
+#ifdef _WIN32
+  help_menu->addSeparator();
+
+  AddAction(help_menu, tr("&Check for Updates..."), this, &MenuBar::InstallUpdateManually);
+#endif
 
   help_menu->addSeparator();
   AddAction(help_menu, tr("&About"), this, &MenuBar::ShowAboutDialog);
@@ -324,8 +569,7 @@ void MenuBar::AddListColumnsMenu(QMenu* view_menu)
       {tr("File Name"), &SConfig::GetInstance().m_showFileNameColumn},
       {tr("Game ID"), &SConfig::GetInstance().m_showIDColumn},
       {tr("Region"), &SConfig::GetInstance().m_showRegionColumn},
-      {tr("File Size"), &SConfig::GetInstance().m_showSizeColumn},
-      {tr("State"), &SConfig::GetInstance().m_showStateColumn}};
+      {tr("File Size"), &SConfig::GetInstance().m_showSizeColumn}};
 
   QActionGroup* column_group = new QActionGroup(this);
   QMenu* cols_menu = view_menu->addMenu(tr("List Columns"));
@@ -426,6 +670,8 @@ void MenuBar::AddMovieMenu()
   m_recording_read_only->setChecked(Movie::IsReadOnly());
   connect(m_recording_read_only, &QAction::toggled, [](bool value) { Movie::SetReadOnly(value); });
 
+  AddAction(movie_menu, tr("TAS Input"), this, [this] { emit ShowTASInput(); });
+
   movie_menu->addSeparator();
 
   auto* pause_at_end = movie_menu->addAction(tr("Pause at End of Movie"));
@@ -449,7 +695,7 @@ void MenuBar::AddMovieMenu()
   auto* input_display = movie_menu->addAction(tr("Show Input Display"));
   input_display->setCheckable(true);
   input_display->setChecked(SConfig::GetInstance().m_ShowInputDisplay);
-  connect(frame_counter, &QAction::toggled,
+  connect(input_display, &QAction::toggled,
           [](bool value) { SConfig::GetInstance().m_ShowInputDisplay = value; });
 
   auto* system_clock = movie_menu->addAction(tr("Show System Clock"));
@@ -471,6 +717,166 @@ void MenuBar::AddMovieMenu()
   dump_audio->setChecked(SConfig::GetInstance().m_DumpAudio);
   connect(dump_audio, &QAction::toggled,
           [](bool value) { SConfig::GetInstance().m_DumpAudio = value; });
+}
+
+void MenuBar::AddJITMenu()
+{
+  m_jit = addMenu(tr("JIT"));
+
+  m_jit_interpreter_core = m_jit->addAction(tr("Interpreter Core"));
+  m_jit_interpreter_core->setCheckable(true);
+  m_jit_interpreter_core->setChecked(SConfig::GetInstance().cpu_core ==
+                                     PowerPC::CPUCore::Interpreter);
+
+  connect(m_jit_interpreter_core, &QAction::toggled, [](bool enabled) {
+    PowerPC::SetMode(enabled ? PowerPC::CoreMode::Interpreter : PowerPC::CoreMode::JIT);
+  });
+
+  m_jit->addSeparator();
+
+  m_jit_block_linking = m_jit->addAction(tr("JIT Block Linking Off"));
+  m_jit_block_linking->setCheckable(true);
+  m_jit_block_linking->setChecked(SConfig::GetInstance().bJITNoBlockLinking);
+  connect(m_jit_block_linking, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITNoBlockLinking = enabled;
+    ClearCache();
+  });
+
+  m_jit_disable_cache = m_jit->addAction(tr("Disable JIT Cache"));
+  m_jit_disable_cache->setCheckable(true);
+  m_jit_disable_cache->setChecked(SConfig::GetInstance().bJITNoBlockCache);
+  connect(m_jit_disable_cache, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITNoBlockCache = enabled;
+    ClearCache();
+  });
+
+  m_jit_clear_cache = AddAction(m_jit, tr("Clear Cache"), this, &MenuBar::ClearCache);
+
+  m_jit->addSeparator();
+
+  m_jit_log_coverage =
+      AddAction(m_jit, tr("Log JIT Instruction Coverage"), this, &MenuBar::LogInstructions);
+  m_jit_search_instruction =
+      AddAction(m_jit, tr("Search for an Instruction"), this, &MenuBar::SearchInstruction);
+
+  m_jit->addSeparator();
+
+  m_jit_off = m_jit->addAction(tr("JIT Off (JIT Core)"));
+  m_jit_off->setCheckable(true);
+  m_jit_off->setChecked(SConfig::GetInstance().bJITOff);
+  connect(m_jit_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_loadstore_off = m_jit->addAction(tr("JIT LoadStore Off"));
+  m_jit_loadstore_off->setCheckable(true);
+  m_jit_loadstore_off->setChecked(SConfig::GetInstance().bJITLoadStoreOff);
+  connect(m_jit_loadstore_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITLoadStoreOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_loadstore_lbzx_off = m_jit->addAction(tr("JIT LoadStore lbzx Off"));
+  m_jit_loadstore_lbzx_off->setCheckable(true);
+  m_jit_loadstore_lbzx_off->setChecked(SConfig::GetInstance().bJITLoadStorelbzxOff);
+  connect(m_jit_loadstore_lbzx_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITLoadStorelbzxOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_loadstore_lxz_off = m_jit->addAction(tr("JIT LoadStore lXz Off"));
+  m_jit_loadstore_lxz_off->setCheckable(true);
+  m_jit_loadstore_lxz_off->setChecked(SConfig::GetInstance().bJITLoadStorelXzOff);
+  connect(m_jit_loadstore_lxz_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITLoadStorelXzOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_loadstore_lwz_off = m_jit->addAction(tr("JIT LoadStore lwz Off"));
+  m_jit_loadstore_lwz_off->setCheckable(true);
+  m_jit_loadstore_lwz_off->setChecked(SConfig::GetInstance().bJITLoadStorelwzOff);
+  connect(m_jit_loadstore_lwz_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITLoadStorelwzOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_loadstore_floating_off = m_jit->addAction(tr("JIT LoadStore Floating Off"));
+  m_jit_loadstore_floating_off->setCheckable(true);
+  m_jit_loadstore_floating_off->setChecked(SConfig::GetInstance().bJITLoadStoreFloatingOff);
+  connect(m_jit_loadstore_floating_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITLoadStoreFloatingOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_loadstore_paired_off = m_jit->addAction(tr("JIT LoadStore Paired Off"));
+  m_jit_loadstore_paired_off->setCheckable(true);
+  m_jit_loadstore_paired_off->setChecked(SConfig::GetInstance().bJITLoadStorePairedOff);
+  connect(m_jit_loadstore_paired_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITLoadStorePairedOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_floatingpoint_off = m_jit->addAction(tr("JIT FloatingPoint Off"));
+  m_jit_floatingpoint_off->setCheckable(true);
+  m_jit_floatingpoint_off->setChecked(SConfig::GetInstance().bJITFloatingPointOff);
+  connect(m_jit_floatingpoint_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITFloatingPointOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_integer_off = m_jit->addAction(tr("JIT Integer Off"));
+  m_jit_integer_off->setCheckable(true);
+  m_jit_integer_off->setChecked(SConfig::GetInstance().bJITIntegerOff);
+  connect(m_jit_integer_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITIntegerOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_paired_off = m_jit->addAction(tr("JIT Paired Off"));
+  m_jit_paired_off->setCheckable(true);
+  m_jit_paired_off->setChecked(SConfig::GetInstance().bJITPairedOff);
+  connect(m_jit_paired_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITPairedOff = enabled;
+    ClearCache();
+  });
+
+  m_jit_systemregisters_off = m_jit->addAction(tr("JIT SystemRegisters Off"));
+  m_jit_systemregisters_off->setCheckable(true);
+  m_jit_systemregisters_off->setChecked(SConfig::GetInstance().bJITSystemRegistersOff);
+  connect(m_jit_systemregisters_off, &QAction::toggled, [this](bool enabled) {
+    SConfig::GetInstance().bJITSystemRegistersOff = enabled;
+    ClearCache();
+  });
+}
+
+void MenuBar::AddSymbolsMenu()
+{
+  m_symbols = addMenu(tr("Symbols"));
+
+  AddAction(m_symbols, tr("&Clear Symbols"), this, &MenuBar::ClearSymbols);
+
+  auto* generate = m_symbols->addMenu(tr("&Generate Symbols From"));
+  AddAction(generate, tr("Address"), this, &MenuBar::GenerateSymbolsFromAddress);
+  AddAction(generate, tr("Signature Database"), this, &MenuBar::GenerateSymbolsFromSignatureDB);
+  AddAction(generate, tr("RSO Modules"), this, &MenuBar::GenerateSymbolsFromRSO);
+  m_symbols->addSeparator();
+
+  AddAction(m_symbols, tr("&Load Symbol Map"), this, &MenuBar::LoadSymbolMap);
+  AddAction(m_symbols, tr("&Save Symbol Map"), this, &MenuBar::SaveSymbolMap);
+  m_symbols->addSeparator();
+
+  AddAction(m_symbols, tr("Load &Other Map File..."), this, &MenuBar::LoadOtherSymbolMap);
+  AddAction(m_symbols, tr("Save Symbol Map &As..."), this, &MenuBar::SaveSymbolMapAs);
+  m_symbols->addSeparator();
+
+  AddAction(m_symbols, tr("Save Code"), this, &MenuBar::SaveCode);
+  m_symbols->addSeparator();
+
+  AddAction(m_symbols, tr("&Create Signature File..."), this, &MenuBar::CreateSignatureFile);
+  m_symbols->addSeparator();
+
+  AddAction(m_symbols, tr("&Patch HLE Functions"), this, &MenuBar::PatchHLEFunctions);
 }
 
 void MenuBar::UpdateToolsMenu(bool emulation_started)
@@ -503,6 +909,22 @@ void MenuBar::UpdateToolsMenu(bool emulation_started)
       action->setEnabled(!tmd.IsValid());
     m_perform_online_update_for_current_region->setEnabled(tmd.IsValid());
   }
+
+  const auto ios = IOS::HLE::GetIOS();
+  const auto bt = ios ? std::static_pointer_cast<IOS::HLE::Device::BluetoothEmu>(
+                            ios->GetDeviceByName("/dev/usb/oh1/57e/305")) :
+                        nullptr;
+  const bool enable_wiimotes =
+      emulation_started && bt && !SConfig::GetInstance().m_bt_passthrough_enabled;
+
+  for (std::size_t i = 0; i < m_wii_remotes.size(); i++)
+  {
+    QAction* const wii_remote = m_wii_remotes[i];
+
+    wii_remote->setEnabled(enable_wiimotes);
+    if (enable_wiimotes)
+      wii_remote->setChecked(bt->AccessWiimoteByIndex(i)->IsConnected());
+  }
 }
 
 void MenuBar::InstallWAD()
@@ -515,8 +937,9 @@ void MenuBar::InstallWAD()
 
   QMessageBox result_dialog(this);
 
-  if (GameFile(wad_file).Install())
+  if (WiiUtils::InstallWAD(wad_file.toStdString()))
   {
+    Settings::Instance().NANDRefresh();
     result_dialog.setIcon(QMessageBox::Information);
     result_dialog.setText(tr("Successfully installed this title to the NAND."));
   }
@@ -535,13 +958,35 @@ void MenuBar::ImportWiiSave()
                                               tr("Wii save files (*.bin);;"
                                                  "All Files (*)"));
 
-  if (!file.isEmpty())
-    CWiiSaveCrypted::ImportWiiSave(file.toStdString());
+  if (file.isEmpty())
+    return;
+
+  bool cancelled = false;
+  auto can_overwrite = [&] {
+    bool yes = QMessageBox::question(
+                   this, tr("Save Import"),
+                   tr("Save data for this title already exists in the NAND. Consider backing up "
+                      "the current data before overwriting.\nOverwrite now?")) == QMessageBox::Yes;
+    cancelled = !yes;
+    return yes;
+  };
+  if (WiiSave::Import(file.toStdString(), can_overwrite))
+    QMessageBox::information(this, tr("Save Import"), tr("Successfully imported save files."));
+  else if (!cancelled)
+    QMessageBox::critical(this, tr("Save Import"), tr("Failed to import save files."));
 }
 
 void MenuBar::ExportWiiSaves()
 {
-  CWiiSaveCrypted::ExportAllSaves();
+  const QString export_dir = QFileDialog::getExistingDirectory(
+      this, tr("Select Export Directory"), QString::fromStdString(File::GetUserPath(D_USER_IDX)),
+      QFileDialog::ShowDirsOnly);
+  if (export_dir.isEmpty())
+    return;
+
+  const size_t count = WiiSave::ExportAll(export_dir.toStdString());
+  QMessageBox::information(this, tr("Save Export"),
+                           tr("Exported %n save(s)", "", static_cast<int>(count)));
 }
 
 void MenuBar::CheckNAND()
@@ -620,12 +1065,12 @@ void MenuBar::NANDExtractCertificates()
   }
 }
 
-void MenuBar::OnSelectionChanged(QSharedPointer<GameFile> game_file)
+void MenuBar::OnSelectionChanged(std::shared_ptr<const UICommon::GameFile> game_file)
 {
-  bool is_null = game_file.isNull();
+  const bool game_selected = !!game_file;
 
-  m_recording_play->setEnabled(!Core::IsRunning() && !is_null);
-  m_recording_start->setEnabled(!Movie::IsPlayingInput() && !is_null);
+  m_recording_play->setEnabled(game_selected && !Core::IsRunning());
+  m_recording_start->setEnabled(game_selected && !Movie::IsPlayingInput());
 }
 
 void MenuBar::OnRecordingStatusChanged(bool recording)
@@ -637,4 +1082,216 @@ void MenuBar::OnRecordingStatusChanged(bool recording)
 void MenuBar::OnReadOnlyModeChanged(bool read_only)
 {
   m_recording_read_only->setChecked(read_only);
+}
+
+void MenuBar::ChangeDebugFont()
+{
+  bool okay;
+  QFont font = QFontDialog::getFont(&okay, Settings::Instance().GetDebugFont(), this,
+                                    tr("Pick a debug font"));
+
+  if (okay)
+    Settings::Instance().SetDebugFont(font);
+}
+
+void MenuBar::ClearSymbols()
+{
+  auto result = QMessageBox::warning(this, tr("Confirmation"),
+                                     tr("Do you want to clear the list of symbol names?"),
+                                     QMessageBox::Yes | QMessageBox::Cancel);
+
+  if (result == QMessageBox::Cancel)
+    return;
+
+  g_symbolDB.Clear();
+  emit NotifySymbolsUpdated();
+}
+
+void MenuBar::GenerateSymbolsFromAddress()
+{
+  PPCAnalyst::FindFunctions(0x80000000, 0x81800000, &g_symbolDB);
+  emit NotifySymbolsUpdated();
+}
+
+void MenuBar::GenerateSymbolsFromSignatureDB()
+{
+  PPCAnalyst::FindFunctions(0x80000000, 0x81800000, &g_symbolDB);
+  SignatureDB db(SignatureDB::HandlerType::DSY);
+  if (db.Load(File::GetSysDirectory() + TOTALDB))
+  {
+    db.Apply(&g_symbolDB);
+    QMessageBox::information(
+        this, tr("Information"),
+        tr("Generated symbol names from '%1'").arg(QString::fromStdString(TOTALDB)));
+    db.List();
+  }
+  else
+  {
+    QMessageBox::critical(
+        this, tr("Error"),
+        tr("'%1' not found, no symbol names generated").arg(QString::fromStdString(TOTALDB)));
+  }
+
+  emit NotifySymbolsUpdated();
+}
+
+void MenuBar::GenerateSymbolsFromRSO()
+{
+  QString text = QInputDialog::getText(this, tr("Input"), tr("Enter the RSO module address:"));
+  bool good;
+  uint address = text.toUInt(&good, 16);
+
+  if (!good)
+  {
+    QMessageBox::warning(this, tr("Error"), tr("Invalid RSO module address: %1").arg(text));
+    return;
+  }
+
+  RSOChainView rso_chain;
+  if (rso_chain.Load(static_cast<u32>(address)))
+  {
+    rso_chain.Apply(&g_symbolDB);
+    emit NotifySymbolsUpdated();
+  }
+  else
+  {
+    QMessageBox::warning(this, tr("Error"), tr("Failed to load RSO module at %1").arg(text));
+  }
+}
+
+void MenuBar::LoadSymbolMap()
+{
+  std::string existing_map_file, writable_map_file;
+  bool map_exists = CBoot::FindMapFile(&existing_map_file, &writable_map_file);
+
+  if (!map_exists)
+  {
+    g_symbolDB.Clear();
+    PPCAnalyst::FindFunctions(0x81300000, 0x81800000, &g_symbolDB);
+    SignatureDB db(SignatureDB::HandlerType::DSY);
+    if (db.Load(File::GetSysDirectory() + TOTALDB))
+      db.Apply(&g_symbolDB);
+
+    QMessageBox::warning(this, tr("Warning"),
+                         tr("'%1' not found, scanning for common functions instead")
+                             .arg(QString::fromStdString(writable_map_file)));
+  }
+  else
+  {
+    g_symbolDB.LoadMap(existing_map_file);
+    QMessageBox::information(
+        this, tr("Information"),
+        tr("Loaded symbols from '%1'").arg(QString::fromStdString(existing_map_file)));
+  }
+
+  HLE::PatchFunctions();
+  emit NotifySymbolsUpdated();
+}
+
+void MenuBar::SaveSymbolMap()
+{
+  std::string existing_map_file, writable_map_file;
+  CBoot::FindMapFile(&existing_map_file, &writable_map_file);
+
+  g_symbolDB.SaveSymbolMap(writable_map_file);
+}
+
+void MenuBar::LoadOtherSymbolMap()
+{
+  QString file = QFileDialog::getOpenFileName(this, tr("Load map file"),
+                                              QString::fromStdString(File::GetUserPath(D_MAPS_IDX)),
+                                              tr("Dolphin Map File (*.map)"));
+
+  if (file.isEmpty())
+    return;
+
+  g_symbolDB.LoadMap(file.toStdString());
+  HLE::PatchFunctions();
+  emit NotifySymbolsUpdated();
+}
+
+void MenuBar::SaveSymbolMapAs()
+{
+  const std::string& title_id_str = SConfig::GetInstance().m_debugger_game_id;
+  QString file = QFileDialog::getSaveFileName(
+      this, tr("Save map file"),
+      QString::fromStdString(File::GetUserPath(D_MAPS_IDX) + "/" + title_id_str + ".map"),
+      tr("Dolphin Map File (*.map)"));
+
+  if (file.isEmpty())
+    return;
+
+  g_symbolDB.SaveSymbolMap(file.toStdString());
+}
+
+void MenuBar::SaveCode()
+{
+  std::string existing_map_file, writable_map_file;
+  CBoot::FindMapFile(&existing_map_file, &writable_map_file);
+
+  const std::string path =
+      writable_map_file.substr(0, writable_map_file.find_last_of('.')) + "_code.map";
+
+  g_symbolDB.SaveCodeMap(path);
+}
+
+void MenuBar::CreateSignatureFile()
+{
+  QString text = QInputDialog::getText(
+      this, tr("Input"), tr("Only export symbols with prefix:\n(Blank for all symbols)"));
+
+  if (text.isEmpty())
+    return;
+
+  std::string prefix = text.toStdString();
+
+  QString file = QFileDialog::getSaveFileName(this, tr("Save signature file"));
+
+  if (file.isEmpty())
+    return;
+
+  std::string save_path = file.toStdString();
+  SignatureDB db(save_path);
+  db.Populate(&g_symbolDB, prefix);
+  db.Save(save_path);
+  db.List();
+}
+
+void MenuBar::PatchHLEFunctions()
+{
+  HLE::PatchFunctions();
+}
+
+void MenuBar::ClearCache()
+{
+  Core::RunAsCPUThread(JitInterface::ClearCache);
+}
+
+void MenuBar::LogInstructions()
+{
+  PPCTables::LogCompiledInstructions();
+}
+
+void MenuBar::SearchInstruction()
+{
+  bool good;
+  QString op = QInputDialog::getText(this, tr("Search instruction"), tr("Instruction:"),
+                                     QLineEdit::Normal, QStringLiteral(""), &good);
+
+  if (!good)
+    return;
+
+  bool found = false;
+  for (u32 addr = 0x80000000; addr < 0x81800000; addr += 4)
+  {
+    auto ins_name =
+        QString::fromStdString(PPCTables::GetInstructionName(PowerPC::HostRead_U32(addr)));
+    if (op == ins_name)
+    {
+      NOTICE_LOG(POWERPC, "Found %s at %08x", op.toStdString().c_str(), addr);
+      found = true;
+    }
+  }
+  if (!found)
+    NOTICE_LOG(POWERPC, "Opcode %s not found", op.toStdString().c_str());
 }

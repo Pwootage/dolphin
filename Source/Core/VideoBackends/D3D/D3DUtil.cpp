@@ -62,7 +62,7 @@ public:
 
   int BeginAppendData(void** write_ptr, unsigned int size, unsigned int vertex_size)
   {
-    _dbg_assert_(VIDEO, size < max_size);
+    DEBUG_ASSERT(size < max_size);
 
     D3D11_MAPPED_SUBRESOURCE map;
     unsigned int aligned_offset = Common::AlignUp(offset, vertex_size);
@@ -89,6 +89,7 @@ public:
   void EndAppendData() { context->Unmap(buf, 0); }
   void AddWrapObserver(bool* observer) { observers.push_back(observer); }
   inline ID3D11Buffer*& GetBuffer() { return buf; }
+
 private:
   ID3D11Buffer* buf = nullptr;
   unsigned int offset = 0;
@@ -387,9 +388,9 @@ int CD3DFont::DrawTextScaled(float x, float y, float size, float spacing, u32 dw
   UINT stride = sizeof(FONT2DVERTEX);
   UINT bufoffset = 0;
 
-  float scalex = 1 / (float)D3D::GetBackBufferWidth() * 2.f;
-  float scaley = 1 / (float)D3D::GetBackBufferHeight() * 2.f;
-  float sizeratio = size / (float)m_LineHeight;
+  float scalex = 1.0f / g_renderer->GetBackbufferWidth() * 2.f;
+  float scaley = 1.0f / g_renderer->GetBackbufferHeight() * 2.f;
+  float sizeratio = size / m_LineHeight;
 
   // translate starting positions
   float sx = x * scalex - 1.f;
@@ -406,8 +407,8 @@ int CD3DFont::DrawTextScaled(float x, float y, float size, float spacing, u32 dw
   pVertices = (D3D::FONT2DVERTEX*)vbmap.pData;
 
   // set general pipeline state
-  D3D::stateman->PushBlendState(m_blendstate);
-  D3D::stateman->PushRasterizerState(m_raststate);
+  D3D::stateman->SetBlendState(m_blendstate);
+  D3D::stateman->SetRasterizerState(m_raststate);
 
   D3D::stateman->SetPixelShader(m_pshader);
   D3D::stateman->SetVertexShader(m_vshader);
@@ -478,8 +479,6 @@ int CD3DFont::DrawTextScaled(float x, float y, float size, float spacing, u32 dw
     D3D::stateman->Apply();
     D3D::context->Draw(3 * dwNumTriangles, 0);
   }
-  D3D::stateman->PopBlendState();
-  D3D::stateman->PopRasterizerState();
   return S_OK;
 }
 
@@ -488,11 +487,7 @@ static ID3D11SamplerState* point_copy_sampler = nullptr;
 
 struct STQVertex
 {
-  float x, y, z, u, v, w, g;
-};
-struct STSQVertex
-{
-  float x, y, z, u, v, w, g;
+  float x, y, z, u, v, w;
 };
 struct ClearVertex
 {
@@ -590,7 +585,7 @@ void SetLinearCopySampler()
 void drawShadedTexQuad(ID3D11ShaderResourceView* texture, const D3D11_RECT* rSource,
                        int SourceWidth, int SourceHeight, ID3D11PixelShader* PShader,
                        ID3D11VertexShader* VShader, ID3D11InputLayout* layout,
-                       ID3D11GeometryShader* GShader, float Gamma, u32 slice)
+                       ID3D11GeometryShader* GShader, u32 slice)
 {
   float sw = 1.0f / (float)SourceWidth;
   float sh = 1.0f / (float)SourceHeight;
@@ -599,18 +594,17 @@ void drawShadedTexQuad(ID3D11ShaderResourceView* texture, const D3D11_RECT* rSou
   float v1 = ((float)rSource->top) * sh;
   float v2 = ((float)rSource->bottom) * sh;
   float S = (float)slice;
-  float G = 1.0f / Gamma;
 
   STQVertex coords[4] = {
-      {-1.0f, 1.0f, 0.0f, u1, v1, S, G},
-      {1.0f, 1.0f, 0.0f, u2, v1, S, G},
-      {-1.0f, -1.0f, 0.0f, u1, v2, S, G},
-      {1.0f, -1.0f, 0.0f, u2, v2, S, G},
+      {-1.0f, 1.0f, 0.0f, u1, v1, S},
+      {1.0f, 1.0f, 0.0f, u2, v1, S},
+      {-1.0f, -1.0f, 0.0f, u1, v2, S},
+      {1.0f, -1.0f, 0.0f, u2, v2, S},
   };
 
   // only upload the data to VRAM if it changed
   if (stq_observer || tex_quad_data.u1 != u1 || tex_quad_data.v1 != v1 || tex_quad_data.u2 != u2 ||
-      tex_quad_data.v2 != v2 || tex_quad_data.S != S || tex_quad_data.G != G)
+      tex_quad_data.v2 != v2 || tex_quad_data.S != S)
   {
     stq_offset = util_vbuf->AppendData(coords, sizeof(coords), sizeof(STQVertex));
     stq_observer = false;
@@ -620,7 +614,6 @@ void drawShadedTexQuad(ID3D11ShaderResourceView* texture, const D3D11_RECT* rSou
     tex_quad_data.u2 = u2;
     tex_quad_data.v2 = v2;
     tex_quad_data.S = S;
-    tex_quad_data.G = G;
   }
   UINT stride = sizeof(STQVertex);
   UINT offset = 0;
@@ -647,7 +640,10 @@ void drawShadedTexQuad(ID3D11ShaderResourceView* texture, const D3D11_RECT* rSou
 void drawColorQuad(u32 Color, float z, float x1, float y1, float x2, float y2)
 {
   ColVertex coords[4] = {
-      {x1, y1, z, Color}, {x2, y1, z, Color}, {x1, y2, z, Color}, {x2, y2, z, Color},
+      {x1, y1, z, Color},
+      {x2, y1, z, Color},
+      {x1, y2, z, Color},
+      {x2, y2, z, Color},
   };
 
   if (cq_observer || draw_quad_data.x1 != x1 || draw_quad_data.y1 != y1 ||

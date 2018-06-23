@@ -11,8 +11,12 @@
 
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/ConfigManager.h"
+
 #include "DolphinQt2/Config/Graphics/GraphicsBool.h"
 #include "DolphinQt2/Config/Graphics/GraphicsSlider.h"
+#include "DolphinQt2/Config/Graphics/GraphicsWindow.h"
+#include "DolphinQt2/Settings.h"
+
 #include "VideoCommon/VideoConfig.h"
 
 HacksWidget::HacksWidget(GraphicsWindow* parent) : GraphicsWidget(parent)
@@ -21,6 +25,10 @@ HacksWidget::HacksWidget(GraphicsWindow* parent) : GraphicsWidget(parent)
   LoadSettings();
   ConnectWidgets();
   AddDescriptions();
+
+  connect(parent, &GraphicsWindow::BackendChanged, this, &HacksWidget::OnBackendChanged);
+  OnBackendChanged(QString::fromStdString(SConfig::GetInstance().m_strVideoBackend));
+  connect(&Settings::Instance(), &Settings::ConfigChanged, this, &HacksWidget::LoadSettings);
 }
 
 void HacksWidget::CreateWidgets()
@@ -50,13 +58,17 @@ void HacksWidget::CreateWidgets()
   m_accuracy = new QSlider(Qt::Horizontal);
   m_accuracy->setMinimum(0);
   m_accuracy->setMaximum(2);
+  m_accuracy->setPageStep(1);
+  m_accuracy->setTickPosition(QSlider::TicksBelow);
   m_gpu_texture_decoding =
       new GraphicsBool(tr("GPU Texture Decoding"), Config::GFX_ENABLE_GPU_TEXTURE_DECODING);
 
   auto* safe_label = new QLabel(tr("Safe"));
   safe_label->setAlignment(Qt::AlignRight);
 
-  texture_cache_layout->addWidget(new QLabel(tr("Accuracy:")), 0, 0);
+  m_accuracy_label = new QLabel(tr("Accuracy:"));
+
+  texture_cache_layout->addWidget(m_accuracy_label, 0, 0);
   texture_cache_layout->addWidget(safe_label, 0, 1);
   texture_cache_layout->addWidget(m_accuracy, 0, 2);
   texture_cache_layout->addWidget(new QLabel(tr("Fast")), 0, 3);
@@ -98,6 +110,21 @@ void HacksWidget::CreateWidgets()
   setLayout(main_layout);
 }
 
+void HacksWidget::OnBackendChanged(const QString& backend_name)
+{
+  const bool bbox = g_Config.backend_info.bSupportsBBox;
+  const bool gpu_texture_decoding = g_Config.backend_info.bSupportsGPUTextureDecoding;
+
+  m_gpu_texture_decoding->setEnabled(gpu_texture_decoding);
+  m_disable_bounding_box->setEnabled(bbox);
+
+  if (!gpu_texture_decoding)
+    m_gpu_texture_decoding->setToolTip(tr("%1 doesn't support this feature.").arg(backend_name));
+
+  if (!bbox)
+    m_disable_bounding_box->setToolTip(tr("%1 doesn't support this feature.").arg(backend_name));
+}
+
 void HacksWidget::ConnectWidgets()
 {
   connect(m_accuracy, &QSlider::valueChanged, [this](int) { SaveSettings(); });
@@ -105,6 +132,7 @@ void HacksWidget::ConnectWidgets()
 
 void HacksWidget::LoadSettings()
 {
+  const bool old = m_accuracy->blockSignals(true);
   auto samples = Config::Get(Config::GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES);
 
   int slider_pos = 0;
@@ -126,6 +154,15 @@ void HacksWidget::LoadSettings()
   }
 
   m_accuracy->setValue(slider_pos);
+
+  QFont bf = m_accuracy_label->font();
+
+  bf.setBold(Config::GetActiveLayerForConfig(Config::GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES) !=
+             Config::LayerType::Base);
+
+  m_accuracy_label->setFont(bf);
+
+  m_accuracy->blockSignals(old);
 }
 
 void HacksWidget::SaveSettings()
@@ -153,50 +190,50 @@ void HacksWidget::SaveSettings()
 
 void HacksWidget::AddDescriptions()
 {
-  static const char* TR_SKIP_EFB_CPU_ACCESS_DESCRIPTION =
+  static const char TR_SKIP_EFB_CPU_ACCESS_DESCRIPTION[] =
       QT_TR_NOOP("Ignore any requests from the CPU to read from or write to the EFB.\nImproves "
                  "performance in some games, but might disable some gameplay-related features or "
                  "graphical effects.\n\nIf unsure, leave this unchecked.");
-  static const char* TR_IGNORE_FORMAT_CHANGE_DESCRIPTION = QT_TR_NOOP(
+  static const char TR_IGNORE_FORMAT_CHANGE_DESCRIPTION[] = QT_TR_NOOP(
       "Ignore any changes to the EFB format.\nImproves performance in many games without "
       "any negative effect. Causes graphical defects in a small number of other "
       "games.\n\nIf unsure, leave this checked.");
-  static const char* TR_STORE_EFB_TO_TEXTURE_DESCRIPTION = QT_TR_NOOP(
+  static const char TR_STORE_EFB_TO_TEXTURE_DESCRIPTION[] = QT_TR_NOOP(
       "Stores EFB Copies exclusively on the GPU, bypassing system memory. Causes graphical defects "
       "in a small number of games.\n\nEnabled = EFB Copies to Texture\nDisabled = EFB Copies to "
       "RAM "
       "(and Texture)\n\nIf unsure, leave this checked.");
-  static const char* TR_ACCUARCY_DESCRIPTION = QT_TR_NOOP(
+  static const char TR_ACCUARCY_DESCRIPTION[] = QT_TR_NOOP(
       "The \"Safe\" setting eliminates the likelihood of the GPU missing texture updates "
       "from RAM.\nLower accuracies cause in-game text to appear garbled in certain "
       "games.\n\nIf unsure, use the rightmost value.");
 
-  static const char* TR_STORE_XFB_TO_TEXTURE_DESCRIPTION = QT_TR_NOOP(
+  static const char TR_STORE_XFB_TO_TEXTURE_DESCRIPTION[] = QT_TR_NOOP(
       "Stores XFB Copies exclusively on the GPU, bypassing system memory. Causes graphical defects "
       "in a small number of games that need to readback from memory.\n\nEnabled = XFB Copies to "
       "Texture\nDisabled = XFB Copies to RAM "
       "(and Texture)\n\nIf unsure, leave this checked.");
 
-  static const char* TR_IMMEDIATE_XFB_DESCRIPTION =
+  static const char TR_IMMEDIATE_XFB_DESCRIPTION[] =
       QT_TR_NOOP("Displays the XFB copies as soon as they are created, without waiting for "
                  "scanout. Can cause graphical defects "
                  "in some games if the game doesn't expect all XFB copies to be displayed. "
                  "However, turning this setting on reduces latency."
                  "\n\nIf unsure, leave this unchecked.");
 
-  static const char* TR_GPU_DECODING_DESCRIPTION =
+  static const char TR_GPU_DECODING_DESCRIPTION[] =
       QT_TR_NOOP("Enables texture decoding using the GPU instead of the CPU. This may result in "
                  "performance gains in some scenarios, or on systems where the CPU is the "
                  "bottleneck.\n\nIf unsure, leave this unchecked.");
 
-  static const char* TR_FAST_DEPTH_CALC_DESCRIPTION = QT_TR_NOOP(
+  static const char TR_FAST_DEPTH_CALC_DESCRIPTION[] = QT_TR_NOOP(
       "Use a less accurate algorithm to calculate depth values.\nCauses issues in a few "
       "games, but can give a decent speedup depending on the game and/or your GPU.\n\nIf "
       "unsure, leave this checked.");
-  static const char* TR_DISABLE_BOUNDINGBOX_DESCRIPTION =
+  static const char TR_DISABLE_BOUNDINGBOX_DESCRIPTION[] =
       QT_TR_NOOP("Disable the bounding box emulation.\nThis may improve the GPU performance a lot, "
                  "but some games will break.\n\nIf unsure, leave this checked.");
-  static const char* TR_VERTEX_ROUNDING_DESCRIPTION =
+  static const char TR_VERTEX_ROUNDING_DESCRIPTION[] =
       QT_TR_NOOP("Rounds 2D vertices to whole pixels. Fixes graphical problems in some games at "
                  "higher internal resolutions. This setting has no effect when native internal "
                  "resolution is used.\n\nIf unsure, leave this unchecked.");
@@ -208,8 +245,6 @@ void HacksWidget::AddDescriptions()
   AddDescription(m_store_xfb_copies, TR_STORE_XFB_TO_TEXTURE_DESCRIPTION);
   AddDescription(m_immediate_xfb, TR_IMMEDIATE_XFB_DESCRIPTION);
   AddDescription(m_gpu_texture_decoding, TR_GPU_DECODING_DESCRIPTION);
-  AddDescription(m_fast_depth_calculation, TR_FAST_DEPTH_CALC_DESCRIPTION);
-  AddDescription(m_disable_bounding_box, TR_DISABLE_BOUNDINGBOX_DESCRIPTION);
   AddDescription(m_fast_depth_calculation, TR_FAST_DEPTH_CALC_DESCRIPTION);
   AddDescription(m_disable_bounding_box, TR_DISABLE_BOUNDINGBOX_DESCRIPTION);
   AddDescription(m_vertex_rounding, TR_VERTEX_ROUNDING_DESCRIPTION);

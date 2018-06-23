@@ -31,6 +31,7 @@ extern "C" {
 #include "VideoCommon/VideoConfig.h"
 
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55, 28, 1)
+#define AV_CODEC_FLAG_GLOBAL_HEADER CODEC_FLAG_GLOBAL_HEADER
 #define av_frame_alloc avcodec_alloc_frame
 #define av_frame_free avcodec_free_frame
 #endif
@@ -100,16 +101,16 @@ static std::string GetDumpPath(const std::string& format)
   if (!g_Config.sDumpPath.empty())
     return g_Config.sDumpPath;
 
-  std::string s_dump_path = File::GetUserPath(D_DUMPFRAMES_IDX) + "framedump" +
-                            std::to_string(s_file_index) + "." + format;
+  const std::string dump_path = File::GetUserPath(D_DUMPFRAMES_IDX) + "framedump" +
+                                std::to_string(s_file_index) + "." + format;
 
   // Ask to delete file
-  if (File::Exists(s_dump_path))
+  if (File::Exists(dump_path))
   {
     if (SConfig::GetInstance().m_DumpFramesSilent ||
-        AskYesNoT("Delete the existing file '%s'?", s_dump_path.c_str()))
+        AskYesNoT("Delete the existing file '%s'?", dump_path.c_str()))
     {
-      File::Delete(s_dump_path);
+      File::Delete(dump_path);
     }
     else
     {
@@ -118,27 +119,29 @@ static std::string GetDumpPath(const std::string& format)
     }
   }
 
-  return s_dump_path;
+  return dump_path;
 }
 
 bool AVIDump::CreateVideoFile()
 {
-  const std::string& s_format = g_Config.sDumpFormat;
+  const std::string& format = g_Config.sDumpFormat;
 
-  std::string s_dump_path = GetDumpPath(s_format);
+  const std::string dump_path = GetDumpPath(format);
 
-  if (s_dump_path.empty())
+  if (dump_path.empty())
     return false;
 
-  AVOutputFormat* output_format = av_guess_format(s_format.c_str(), s_dump_path.c_str(), nullptr);
+  File::CreateFullPath(dump_path);
+
+  AVOutputFormat* output_format = av_guess_format(format.c_str(), dump_path.c_str(), nullptr);
   if (!output_format)
   {
-    ERROR_LOG(VIDEO, "Invalid format %s", s_format.c_str());
+    ERROR_LOG(VIDEO, "Invalid format %s", format.c_str());
     return false;
   }
 
-  if (avformat_alloc_output_context2(&s_format_context, output_format, nullptr,
-                                     s_dump_path.c_str()) < 0)
+  if (avformat_alloc_output_context2(&s_format_context, output_format, nullptr, dump_path.c_str()) <
+      0)
   {
     ERROR_LOG(VIDEO, "Could not allocate output context");
     return false;
@@ -159,7 +162,15 @@ bool AVIDump::CreateVideoFile()
 
   const AVCodec* codec = nullptr;
 
-  codec = avcodec_find_encoder(codec_id);
+  if (!g_Config.sDumpEncoder.empty())
+  {
+    codec = avcodec_find_encoder_by_name(g_Config.sDumpEncoder.c_str());
+    if (!codec)
+      WARN_LOG(VIDEO, "Invalid encoder %s", g_Config.sDumpEncoder.c_str());
+  }
+  if (!codec)
+    codec = avcodec_find_encoder(codec_id);
+
   s_codec_context = avcodec_alloc_context3(codec);
   if (!codec || !s_codec_context)
   {
@@ -181,7 +192,7 @@ bool AVIDump::CreateVideoFile()
   s_codec_context->pix_fmt = g_Config.bUseFFV1 ? AV_PIX_FMT_BGRA : AV_PIX_FMT_YUV420P;
 
   if (output_format->flags & AVFMT_GLOBALHEADER)
-    s_codec_context->flags |= CODEC_FLAG_GLOBAL_HEADER;
+    s_codec_context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
   if (avcodec_open2(s_codec_context, codec, nullptr) < 0)
   {

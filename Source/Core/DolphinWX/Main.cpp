@@ -5,6 +5,7 @@
 #include <OptionParser.h>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <utility>
 #include <wx/app.h>
@@ -256,12 +257,18 @@ void DolphinApp::AfterInit()
 
   if (m_play_movie && !m_movie_file.empty())
   {
-    if (Movie::PlayInput(WxStrToStr(m_movie_file)))
+    std::optional<std::string> savestate_path;
+    if (Movie::PlayInput(WxStrToStr(m_movie_file), &savestate_path))
     {
       if (m_boot)
+      {
+        m_boot->savestate_path = savestate_path;
         main_frame->StartGame(std::move(m_boot));
+      }
       else
-        main_frame->BootGame("");
+      {
+        main_frame->BootGame("", savestate_path);
+      }
     }
   }
   // First check if we have an exec command line.
@@ -336,6 +343,9 @@ void DolphinApp::InitLanguageSupport()
         _("Error"));
     m_locale.reset(new wxLocale(wxLANGUAGE_DEFAULT));
   }
+
+  // wxWidgets sets the C locale for us, but not the C++ locale, so let's do that ourselves
+  UICommon::SetLocale(language_code);
 }
 
 void DolphinApp::OnEndSession(wxCloseEvent& event)
@@ -405,15 +415,15 @@ CFrame* DolphinApp::GetCFrame()
   return main_frame;
 }
 
-void Host_Message(int Id)
+void Host_Message(HostMessageID id)
 {
-  if (Id == WM_USER_JOB_DISPATCH)
+  if (id == HostMessageID::WMUserJobDispatch)
   {
     // Trigger a wxEVT_IDLE
     wxWakeUpIdle();
     return;
   }
-  wxCommandEvent event(wxEVT_HOST_COMMAND, Id);
+  wxCommandEvent event(wxEVT_HOST_COMMAND, static_cast<int>(id));
   main_frame->GetEventHandler()->AddPendingEvent(event);
 }
 

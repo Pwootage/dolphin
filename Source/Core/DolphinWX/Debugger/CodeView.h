@@ -18,13 +18,17 @@
 wxDECLARE_EVENT(wxEVT_CODEVIEW_CHANGE, wxCommandEvent);
 
 class DebugInterface;
-class SymbolDB;
 class wxPaintDC;
+
+namespace Common
+{
+class SymbolDB;
+}
 
 class CCodeView : public wxControl
 {
 public:
-  CCodeView(DebugInterface* debuginterface, SymbolDB* symbol_db, wxWindow* parent,
+  CCodeView(DebugInterface* debuginterface, Common::SymbolDB* symbol_db, wxWindow* parent,
             wxWindowID Id = wxID_ANY);
 
   void ToggleBreakpoint(u32 address);
@@ -38,6 +42,7 @@ public:
   }
 
   void SetPlain() { m_plain = true; }
+
 private:
   void OnPaint(wxPaintEvent& event);
   void OnScrollWheel(wxMouseEvent& event);
@@ -54,17 +59,10 @@ private:
   u32 AddrToBranch(u32 addr);
   void OnResize(wxSizeEvent& event);
 
-  struct BlrStruct  // for IDM_INSERTBLR
-  {
-    u32 address;
-    u32 oldValue;
-  };
-  std::vector<BlrStruct> m_blrList;
-
   static constexpr int LEFT_COL_WIDTH = 16;
 
   DebugInterface* m_debugger;
-  SymbolDB* m_symbol_db;
+  Common::SymbolDB* m_symbol_db;
 
   bool m_plain;
 

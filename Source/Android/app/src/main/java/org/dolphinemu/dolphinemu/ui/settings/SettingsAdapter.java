@@ -199,36 +199,28 @@ public final class SettingsAdapter extends RecyclerView.Adapter<SettingViewHolde
 	{
 		final MotionAlertDialog dialog = new MotionAlertDialog(mContext, item);
 		dialog.setTitle(R.string.input_binding);
-		dialog.setMessage(String.format(mContext.getString(R.string.input_binding_descrip), mContext.getString(item.getNameId())));
+		dialog.setMessage(String.format(mContext.getString(R.string.input_binding_description), mContext.getString(item.getNameId())));
 		dialog.setButton(AlertDialog.BUTTON_NEGATIVE, mContext.getString(R.string.cancel), this);
-		dialog.setButton(AlertDialog.BUTTON_NEUTRAL, mContext.getString(R.string.clear), new AlertDialog.OnClickListener()
+		dialog.setButton(AlertDialog.BUTTON_NEUTRAL, mContext.getString(R.string.clear), (dialogInterface, i) ->
 		{
-			@Override
-			public void onClick(DialogInterface dialogInterface, int i)
-			{
-				item.setValue("");
+			item.setValue("");
 
-				SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(mContext);
-				SharedPreferences.Editor editor = sharedPreferences.edit();
-				editor.remove(item.getKey());
-				editor.apply();
-			}
+			SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(mContext);
+			SharedPreferences.Editor editor = sharedPreferences.edit();
+			editor.remove(item.getKey());
+			editor.apply();
 		});
-		dialog.setOnDismissListener(new AlertDialog.OnDismissListener()
+		dialog.setOnDismissListener(dialog1 ->
 		{
-			@Override
-			public void onDismiss(DialogInterface dialog)
+			StringSetting setting = new StringSetting(item.getKey(), item.getSection(), item.getFile(), item.getValue());
+			notifyItemChanged(position);
+
+			if (setting != null)
 			{
-				StringSetting setting = new StringSetting(item.getKey(), item.getSection(), item.getFile(), item.getValue());
-				notifyItemChanged(position);
-
-				if (setting != null)
-				{
-					mView.putSetting(setting);
-				}
-
-				mView.onSettingChanged();
+				mView.putSetting(setting);
 			}
+
+			mView.onSettingChanged();
 		});
 		dialog.setCanceledOnTouchOutside(false);
 		dialog.show();
@@ -269,14 +261,6 @@ public final class SettingsAdapter extends RecyclerView.Adapter<SettingViewHolde
 				if (scSetting.getKey().equals(SettingsFile.KEY_VIDEO_BACKEND_INDEX))
 				{
 					putVideoBackendSetting(which);
-				}
-				else if (scSetting.getKey().equals(SettingsFile.KEY_XFB_METHOD))
-				{
-					putXfbSetting(which);
-				}
-				else if (scSetting.getKey().equals(SettingsFile.KEY_UBERSHADER_MODE))
-				{
-					putUberShaderModeSetting(which);
 				}
 				else if (scSetting.getKey().equals(SettingsFile.KEY_WIIMOTE_EXTENSION))
 				{
@@ -395,77 +379,23 @@ public final class SettingsAdapter extends RecyclerView.Adapter<SettingViewHolde
 		switch (which)
 		{
 			case 0:
-				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_CORE, SettingsFile.SETTINGS_DOLPHIN, "OGL");
+				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_INI_CORE, SettingsFile.SETTINGS_DOLPHIN, "OGL");
 				break;
 
 			case 1:
-				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_CORE, SettingsFile.SETTINGS_DOLPHIN, "Vulkan");
+				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_INI_CORE, SettingsFile.SETTINGS_DOLPHIN, "Vulkan");
 				break;
 
 			case 2:
-				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_CORE, SettingsFile.SETTINGS_DOLPHIN, "Software Renderer");
+				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_INI_CORE, SettingsFile.SETTINGS_DOLPHIN, "Software Renderer");
 				break;
 
 			case 3:
-				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_CORE, SettingsFile.SETTINGS_DOLPHIN, "Null");
+				gfxBackend = new StringSetting(SettingsFile.KEY_VIDEO_BACKEND, SettingsFile.SECTION_INI_CORE, SettingsFile.SETTINGS_DOLPHIN, "Null");
 				break;
 		}
 
 		mView.putSetting(gfxBackend);
-	}
-
-	public void putXfbSetting(int which)
-	{
-		BooleanSetting xfbEnable = null;
-		BooleanSetting xfbReal = null;
-
-		switch (which)
-		{
-			case 0:
-				xfbEnable = new BooleanSetting(SettingsFile.KEY_XFB, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, false);
-				xfbReal = new BooleanSetting(SettingsFile.KEY_XFB_REAL, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, false);
-				break;
-
-			case 1:
-				xfbEnable = new BooleanSetting(SettingsFile.KEY_XFB, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, true);
-				xfbReal = new BooleanSetting(SettingsFile.KEY_XFB_REAL, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, false);
-				break;
-
-			case 2:
-				xfbEnable = new BooleanSetting(SettingsFile.KEY_XFB, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, true);
-				xfbReal = new BooleanSetting(SettingsFile.KEY_XFB_REAL, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, true);
-				break;
-		}
-
-		mView.putSetting(xfbEnable);
-		mView.putSetting(xfbReal);
-	}
-
-  public void putUberShaderModeSetting(int which)
-  {
-		BooleanSetting disableSpecializedShaders = null;
-		BooleanSetting backgroundShaderCompilation = null;
-
-		switch (which)
-		{
-			case 0:
-				disableSpecializedShaders = new BooleanSetting(SettingsFile.KEY_DISABLE_SPECIALIZED_SHADERS, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, false);
-				backgroundShaderCompilation = new BooleanSetting(SettingsFile.KEY_BACKGROUND_SHADER_COMPILING, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, false);
-				break;
-
-			case 1:
-				disableSpecializedShaders = new BooleanSetting(SettingsFile.KEY_DISABLE_SPECIALIZED_SHADERS, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, false);
-				backgroundShaderCompilation = new BooleanSetting(SettingsFile.KEY_BACKGROUND_SHADER_COMPILING, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, true);
-				break;
-
-			case 2:
-				disableSpecializedShaders = new BooleanSetting(SettingsFile.KEY_DISABLE_SPECIALIZED_SHADERS, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, true);
-				backgroundShaderCompilation = new BooleanSetting(SettingsFile.KEY_BACKGROUND_SHADER_COMPILING, SettingsFile.SECTION_GFX_SETTINGS, SettingsFile.SETTINGS_GFX, false);
-				break;
-		}
-
-		mView.putSetting(disableSpecializedShaders);
-		mView.putSetting(backgroundShaderCompilation);
 	}
 
 	public void putExtensionSetting(int which, int wiimoteNumber)

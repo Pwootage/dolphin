@@ -5,6 +5,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -18,12 +19,19 @@ namespace Common
 class HttpRequest final
 {
 public:
-  explicit HttpRequest(std::chrono::milliseconds timeout_ms = std::chrono::milliseconds{3000});
+  // Return false to abort the request
+  using ProgressCallback =
+      std::function<bool(double dlnow, double dltotal, double ulnow, double ultotal)>;
+
+  explicit HttpRequest(std::chrono::milliseconds timeout_ms = std::chrono::milliseconds{3000},
+                       ProgressCallback callback = nullptr);
   ~HttpRequest();
   bool IsValid() const;
 
   using Response = std::optional<std::vector<u8>>;
   using Headers = std::map<std::string, std::optional<std::string>>;
+
+  void SetCookies(const std::string& cookies);
   Response Get(const std::string& url, const Headers& headers = {});
   Response Post(const std::string& url, const std::vector<u8>& payload,
                 const Headers& headers = {});

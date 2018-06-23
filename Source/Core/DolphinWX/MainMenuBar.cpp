@@ -72,7 +72,7 @@ wxMenu* MainMenuBar::CreateFileMenu() const
 {
   auto* const external_drive_menu = new wxMenu;
 
-  const std::vector<std::string> drives = cdio_get_devices();
+  const std::vector<std::string> drives = Common::GetCDDevices();
   // Windows Limitation of 24 character drives
   for (size_t i = 0; i < drives.size() && i < 24; i++)
   {
@@ -319,8 +319,6 @@ wxMenu* MainMenuBar::CreateViewMenu() const
   columns_menu->Check(IDM_SHOW_REGION, config_instance.m_showRegionColumn);
   columns_menu->AppendCheckItem(IDM_SHOW_SIZE, _("File Size"));
   columns_menu->Check(IDM_SHOW_SIZE, config_instance.m_showSizeColumn);
-  columns_menu->AppendCheckItem(IDM_SHOW_STATE, _("State"));
-  columns_menu->Check(IDM_SHOW_STATE, config_instance.m_showStateColumn);
 
   auto* const view_menu = new wxMenu;
   view_menu->AppendCheckItem(IDM_TOGGLE_TOOLBAR, _("Show &Toolbar"));
@@ -373,7 +371,7 @@ wxMenu* MainMenuBar::CreateJITMenu() const
       _("This is necessary to get break points"
         " and stepping to work as explained in the Developer Documentation. But it can be very"
         " slow, perhaps slower than 1 fps."));
-  interpreter->Check(config_instance.iCPUCore == PowerPC::CORE_INTERPRETER);
+  interpreter->Check(config_instance.cpu_core == PowerPC::CPUCore::Interpreter);
 
   jit_menu->AppendSeparator();
   jit_menu->AppendCheckItem(IDM_JIT_NO_BLOCK_LINKING, _("&JIT Block Linking Off"),

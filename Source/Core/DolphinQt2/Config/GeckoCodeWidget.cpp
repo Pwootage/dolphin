@@ -6,6 +6,7 @@
 
 #include <QFontDatabase>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
@@ -15,13 +16,18 @@
 
 #include "Common/FileUtil.h"
 #include "Common/IniFile.h"
+
 #include "Core/ConfigManager.h"
 #include "Core/GeckoCodeConfig.h"
-#include "DolphinQt2/Config/CheatWarningWidget.h"
-#include "DolphinQt2/GameList/GameFile.h"
 
-GeckoCodeWidget::GeckoCodeWidget(const GameFile& game)
-    : m_game(game), m_game_id(game.GetGameID().toStdString()), m_game_revision(game.GetRevision())
+#include "DolphinQt2/Config/CheatCodeEditor.h"
+#include "DolphinQt2/Config/CheatWarningWidget.h"
+
+#include "UICommon/GameFile.h"
+
+GeckoCodeWidget::GeckoCodeWidget(const UICommon::GameFile& game, bool restart_required)
+    : m_game(game), m_game_id(game.GetGameID()), m_game_revision(game.GetRevision()),
+      m_restart_required(restart_required)
 {
   CreateWidgets();
   ConnectWidgets();
@@ -40,10 +46,12 @@ GeckoCodeWidget::GeckoCodeWidget(const GameFile& game)
 
 void GeckoCodeWidget::CreateWidgets()
 {
-  m_warning = new CheatWarningWidget(m_game_id);
+  m_warning = new CheatWarningWidget(m_game_id, m_restart_required, this);
   m_code_list = new QListWidget;
   m_name_label = new QLabel;
   m_creator_label = new QLabel;
+
+  m_code_list->setSortingEnabled(true);
 
   QFont monospace(QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
 
@@ -59,9 +67,16 @@ void GeckoCodeWidget::CreateWidgets()
   m_code_view->setReadOnly(true);
   m_code_view->setFixedHeight(line_height * 10);
 
-  m_download_codes = new QPushButton(tr("Download Codes (WiiRD Database)"));
+  m_add_code = new QPushButton(tr("&Add New Code..."));
+  m_edit_code = new QPushButton(tr("&Edit Code..."));
+  m_remove_code = new QPushButton(tr("&Remove Code"));
+  m_download_codes = new QPushButton(tr("Download Codes"));
+
+  m_download_codes->setToolTip(tr("Download Codes from the WiiRD Database"));
+
   m_download_codes->setEnabled(!m_game_id.empty());
-  m_download_codes->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+  m_edit_code->setEnabled(false);
+  m_remove_code->setEnabled(false);
 
   auto* layout = new QVBoxLayout;
 
@@ -85,7 +100,15 @@ void GeckoCodeWidget::CreateWidgets()
   layout->addLayout(info_layout);
   layout->addWidget(m_code_description);
   layout->addWidget(m_code_view);
-  layout->addWidget(m_download_codes, 0, Qt::AlignRight);
+
+  QHBoxLayout* btn_layout = new QHBoxLayout;
+
+  btn_layout->addWidget(m_add_code);
+  btn_layout->addWidget(m_edit_code);
+  btn_layout->addWidget(m_remove_code);
+  btn_layout->addWidget(m_download_codes);
+
+  layout->addLayout(btn_layout);
 
   setLayout(layout);
 }
@@ -96,6 +119,9 @@ void GeckoCodeWidget::ConnectWidgets()
           &GeckoCodeWidget::OnSelectionChanged);
   connect(m_code_list, &QListWidget::itemChanged, this, &GeckoCodeWidget::OnItemChanged);
 
+  connect(m_add_code, &QPushButton::pressed, this, &GeckoCodeWidget::AddCode);
+  connect(m_remove_code, &QPushButton::pressed, this, &GeckoCodeWidget::RemoveCode);
+  connect(m_edit_code, &QPushButton::pressed, this, &GeckoCodeWidget::EditCode);
   connect(m_download_codes, &QPushButton::pressed, this, &GeckoCodeWidget::DownloadCodes);
 
   connect(m_warning, &CheatWarningWidget::OpenCheatEnableSettings, this,
@@ -106,12 +132,17 @@ void GeckoCodeWidget::OnSelectionChanged()
 {
   auto items = m_code_list->selectedItems();
 
+  m_edit_code->setEnabled(!items.empty());
+  m_remove_code->setEnabled(!items.empty());
+
   if (items.empty())
     return;
 
   auto selected = items[0];
 
-  const auto& code = m_gecko_codes[m_code_list->row(selected)];
+  const int index = selected->data(Qt::UserRole).toInt();
+
+  const auto& code = m_gecko_codes[index];
 
   m_name_label->setText(QString::fromStdString(code.name));
   m_creator_label->setText(QString::fromStdString(code.creator));
@@ -131,8 +162,61 @@ void GeckoCodeWidget::OnSelectionChanged()
 
 void GeckoCodeWidget::OnItemChanged(QListWidgetItem* item)
 {
-  m_gecko_codes[m_code_list->row(item)].enabled = (item->checkState() == Qt::Checked);
+  const int index = item->data(Qt::UserRole).toInt();
+  m_gecko_codes[index].enabled = (item->checkState() == Qt::Checked);
 
+  if (!m_restart_required)
+    Gecko::SetActiveCodes(m_gecko_codes);
+
+  SaveCodes();
+}
+
+void GeckoCodeWidget::AddCode()
+{
+  Gecko::GeckoCode code;
+  code.enabled = true;
+
+  CheatCodeEditor ed(this);
+  ed.SetGeckoCode(&code);
+
+  if (ed.exec())
+  {
+    m_gecko_codes.push_back(std::move(code));
+    SaveCodes();
+    UpdateList();
+  }
+}
+
+void GeckoCodeWidget::EditCode()
+{
+  const auto* item = m_code_list->currentItem();
+
+  if (item == nullptr)
+    return;
+
+  const int index = item->data(Qt::UserRole).toInt();
+
+  CheatCodeEditor ed(this);
+
+  ed.SetGeckoCode(&m_gecko_codes[index]);
+
+  if (ed.exec())
+  {
+    SaveCodes();
+    UpdateList();
+  }
+}
+
+void GeckoCodeWidget::RemoveCode()
+{
+  const auto* item = m_code_list->currentItem();
+
+  if (item == nullptr)
+    return;
+
+  m_gecko_codes.erase(m_gecko_codes.begin() + item->data(Qt::UserRole).toInt());
+
+  UpdateList();
   SaveCodes();
 }
 
@@ -159,6 +243,7 @@ void GeckoCodeWidget::UpdateList()
 
     item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
     item->setCheckState(code.enabled ? Qt::Checked : Qt::Unchecked);
+    item->setData(Qt::UserRole, static_cast<int>(i));
 
     m_code_list->addItem(item);
   }

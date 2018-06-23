@@ -56,7 +56,7 @@ static void HotplugThreadFunc()
   NOTICE_LOG(SERIALINTERFACE, "evdev hotplug thread started");
 
   udev* udev = udev_new();
-  _assert_msg_(PAD, udev != nullptr, "Couldn't initialize libudev.");
+  ASSERT_MSG(PAD, udev != nullptr, "Couldn't initialize libudev.");
 
   // Set up monitoring
   udev_monitor* monitor = udev_monitor_new_from_netlink(udev, "udev");
@@ -72,14 +72,15 @@ static void HotplugThreadFunc()
     FD_SET(monitor_fd, &fds);
     FD_SET(s_wakeup_eventfd, &fds);
 
-    int ret = select(monitor_fd + 1, &fds, nullptr, nullptr, nullptr);
+    int ret = select(std::max(monitor_fd, s_wakeup_eventfd) + 1, &fds, nullptr, nullptr, nullptr);
     if (ret < 1 || !FD_ISSET(monitor_fd, &fds))
       continue;
 
-    udev_device* dev = udev_monitor_receive_device(monitor);
+    std::unique_ptr<udev_device, decltype(&udev_device_unref)> dev{
+        udev_monitor_receive_device(monitor), udev_device_unref};
 
-    const char* action = udev_device_get_action(dev);
-    const char* devnode = udev_device_get_devnode(dev);
+    const char* action = udev_device_get_action(dev.get());
+    const char* devnode = udev_device_get_devnode(dev.get());
     if (!devnode)
       continue;
 
@@ -92,9 +93,7 @@ static void HotplugThreadFunc()
       g_controller_interface.RemoveDevice([&name](const auto& device) {
         return device->GetSource() == "evdev" && device->GetName() == name && !device->IsValid();
       });
-      NOTICE_LOG(SERIALINTERFACE, "Removed device: %s", name.c_str());
       s_devnode_name_map.erase(devnode);
-      g_controller_interface.InvokeHotplugCallbacks();
     }
     // Only react to "device added" events for evdev devices that we can access.
     else if (strcmp(action, "add") == 0 && access(devnode, W_OK) == 0)
@@ -107,11 +106,8 @@ static void HotplugThreadFunc()
       {
         g_controller_interface.AddDevice(std::move(device));
         s_devnode_name_map.insert(std::pair<std::string, std::string>(devnode, name));
-        NOTICE_LOG(SERIALINTERFACE, "Added new device: %s", name.c_str());
-        g_controller_interface.InvokeHotplugCallbacks();
       }
     }
-    udev_device_unref(dev);
   }
   NOTICE_LOG(SERIALINTERFACE, "evdev hotplug thread stopped");
 }
@@ -124,7 +120,7 @@ static void StartHotplugThread()
     return;
 
   s_wakeup_eventfd = eventfd(0, 0);
-  _assert_msg_(PAD, s_wakeup_eventfd != -1, "Couldn't create eventfd.");
+  ASSERT_MSG(PAD, s_wakeup_eventfd != -1, "Couldn't create eventfd.");
   s_hotplug_thread = std::thread(HotplugThreadFunc);
 }
 
@@ -140,6 +136,7 @@ static void StopHotplugThread()
   {
   }
   s_hotplug_thread.join();
+  close(s_wakeup_eventfd);
 }
 
 void Init()
@@ -155,7 +152,7 @@ void PopulateDevices()
   // this ever changes, hopefully udev will take care of this.
 
   udev* udev = udev_new();
-  _assert_msg_(PAD, udev != nullptr, "Couldn't initialize libudev.");
+  ASSERT_MSG(PAD, udev != nullptr, "Couldn't initialize libudev.");
 
   // List all input devices
   udev_enumerate* enumerate = udev_enumerate_new(udev);

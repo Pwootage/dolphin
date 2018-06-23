@@ -7,17 +7,17 @@
 #include <cmath>
 #include <limits>
 
+#include "Common/BitUtils.h"
 #include "Common/CPUDetect.h"
 #include "Common/CommonTypes.h"
-#include "Common/MathUtil.h"
+#include "Common/FloatUtils.h"
 #include "Core/PowerPC/Gekko.h"
 #include "Core/PowerPC/PowerPC.h"
 
-const u64 PPC_NAN_U64 = 0x7ff8000000000000ull;
-const double PPC_NAN = *(double* const) & PPC_NAN_U64;
+constexpr double PPC_NAN = std::numeric_limits<double>::quiet_NaN();
 
 // the 4 less-significand bits in FPSCR[FPRF]
-enum FPCC
+enum class FPCC
 {
   FL = 8,  // <
   FG = 4,  // >
@@ -31,7 +31,9 @@ inline void SetFPException(u32 mask)
   {
     FPSCR.FX = 1;
   }
+
   FPSCR.Hex |= mask;
+  FPSCR.VX = (FPSCR.Hex & FPSCR_VX_ANY) != 0;
 }
 
 inline void SetFI(int FI)
@@ -46,7 +48,13 @@ inline void SetFI(int FI)
 inline void UpdateFPSCR()
 {
   FPSCR.VX = (FPSCR.Hex & FPSCR_VX_ANY) != 0;
-  FPSCR.FEX = 0;  // we assume that "?E" bits are always 0
+  FPSCR.FEX = (FPSCR.VX & FPSCR.VE) | (FPSCR.OX & FPSCR.OE) | (FPSCR.UX & FPSCR.UE) |
+              (FPSCR.ZX & FPSCR.ZE) | (FPSCR.XX & FPSCR.XE);
+}
+
+inline void Helper_UpdateCR1()
+{
+  PowerPC::SetCRField(1, (FPSCR.FX << 3) | (FPSCR.FEX << 2) | (FPSCR.VX << 1) | FPSCR.OX);
 }
 
 inline double ForceSingle(double value)
@@ -55,7 +63,7 @@ inline double ForceSingle(double value)
   float x = (float)value;
   if (!cpu_info.bFlushToZero && FPSCR.NI)
   {
-    x = MathUtil::FlushToZero(x);
+    x = Common::FlushToZero(x);
   }
   // ...and back to double:
   return x;
@@ -65,23 +73,25 @@ inline double ForceDouble(double d)
 {
   if (!cpu_info.bFlushToZero && FPSCR.NI)
   {
-    d = MathUtil::FlushToZero(d);
+    d = Common::FlushToZero(d);
   }
   return d;
 }
 
 inline double Force25Bit(double d)
 {
-  MathUtil::IntDouble x(d);
-  x.i = (x.i & 0xFFFFFFFFF8000000ULL) + (x.i & 0x8000000);
-  return x.d;
+  u64 integral = Common::BitCast<u64>(d);
+
+  integral = (integral & 0xFFFFFFFFF8000000ULL) + (integral & 0x8000000);
+
+  return Common::BitCast<double>(integral);
 }
 
 inline double MakeQuiet(double d)
 {
-  MathUtil::IntDouble x(d);
-  x.i |= MathUtil::DOUBLE_QBIT;
-  return x.d;
+  const u64 integral = Common::BitCast<u64>(d) | Common::DOUBLE_QBIT;
+
+  return Common::BitCast<double>(integral);
 }
 
 // these functions allow globally modify operations behaviour
@@ -89,13 +99,19 @@ inline double MakeQuiet(double d)
 
 inline double NI_mul(double a, double b)
 {
-  double t = a * b;
+  const double t = a * b;
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(a) || Common::IsSNAN(b))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(a))
       return MakeQuiet(a);
     if (std::isnan(b))
       return MakeQuiet(b);
+
     SetFPException(FPSCR_VXIMZ);
     return PPC_NAN;
   }
@@ -104,55 +120,91 @@ inline double NI_mul(double a, double b)
 
 inline double NI_div(double a, double b)
 {
-  double t = a / b;
+  const double t = a / b;
+
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(a) || Common::IsSNAN(b))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(a))
       return MakeQuiet(a);
     if (std::isnan(b))
       return MakeQuiet(b);
+
     if (b == 0.0)
     {
-      SetFPException(FPSCR_ZX);
       if (a == 0.0)
+      {
         SetFPException(FPSCR_VXZDZ);
+      }
+      else
+      {
+        SetFPException(FPSCR_ZX);
+      }
     }
     else if (std::isinf(a) && std::isinf(b))
     {
       SetFPException(FPSCR_VXIDI);
     }
+
     return PPC_NAN;
   }
+
   return t;
 }
 
 inline double NI_add(double a, double b)
 {
-  double t = a + b;
+  const double t = a + b;
+
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(a) || Common::IsSNAN(b))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(a))
       return MakeQuiet(a);
     if (std::isnan(b))
       return MakeQuiet(b);
+
     SetFPException(FPSCR_VXISI);
     return PPC_NAN;
   }
+
+  if (std::isinf(a) || std::isinf(b))
+    FPSCR.ClearFIFR();
+
   return t;
 }
 
 inline double NI_sub(double a, double b)
 {
-  double t = a - b;
+  const double t = a - b;
+
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(a) || Common::IsSNAN(b))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(a))
       return MakeQuiet(a);
     if (std::isnan(b))
       return MakeQuiet(b);
+
     SetFPException(FPSCR_VXISI);
     return PPC_NAN;
   }
+
+  if (std::isinf(a) || std::isinf(b))
+    FPSCR.ClearFIFR();
+
   return t;
 }
 
@@ -162,51 +214,88 @@ inline double NI_sub(double a, double b)
 inline double NI_madd(double a, double c, double b)
 {
   double t = a * c;
+
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(a) || Common::IsSNAN(b) || Common::IsSNAN(c))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(a))
       return MakeQuiet(a);
     if (std::isnan(b))
       return MakeQuiet(b);  // !
     if (std::isnan(c))
       return MakeQuiet(c);
+
     SetFPException(FPSCR_VXIMZ);
     return PPC_NAN;
   }
+
   t += b;
+
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(b))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(b))
       return MakeQuiet(b);
+
     SetFPException(FPSCR_VXISI);
     return PPC_NAN;
   }
+
+  if (std::isinf(a) || std::isinf(b) || std::isinf(c))
+    FPSCR.ClearFIFR();
+
   return t;
 }
 
 inline double NI_msub(double a, double c, double b)
 {
   double t = a * c;
+
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(a) || Common::IsSNAN(b) || Common::IsSNAN(c))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(a))
       return MakeQuiet(a);
     if (std::isnan(b))
       return MakeQuiet(b);  // !
     if (std::isnan(c))
       return MakeQuiet(c);
+
     SetFPException(FPSCR_VXIMZ);
     return PPC_NAN;
   }
 
   t -= b;
+
   if (std::isnan(t))
   {
+    if (Common::IsSNAN(b))
+      SetFPException(FPSCR_VXSNAN);
+
+    FPSCR.ClearFIFR();
+
     if (std::isnan(b))
       return MakeQuiet(b);
+
     SetFPException(FPSCR_VXISI);
     return PPC_NAN;
   }
+
+  if (std::isinf(a) || std::isinf(b) || std::isinf(c))
+    FPSCR.ClearFIFR();
+
   return t;
 }
 
@@ -214,13 +303,13 @@ inline double NI_msub(double a, double c, double b)
 inline u32 ConvertToSingle(u64 x)
 {
   u32 exp = (x >> 52) & 0x7ff;
-  if (exp > 896 || (x & ~MathUtil::DOUBLE_SIGN) == 0)
+  if (exp > 896 || (x & ~Common::DOUBLE_SIGN) == 0)
   {
     return ((x >> 32) & 0xc0000000) | ((x >> 29) & 0x3fffffff);
   }
   else if (exp >= 874)
   {
-    u32 t = (u32)(0x80000000 | ((x & MathUtil::DOUBLE_FRAC) >> 21));
+    u32 t = (u32)(0x80000000 | ((x & Common::DOUBLE_FRAC) >> 21));
     t = t >> (905 - exp);
     t |= (x >> 32) & 0x80000000;
     return t;
@@ -237,7 +326,7 @@ inline u32 ConvertToSingle(u64 x)
 inline u32 ConvertToSingleFTZ(u64 x)
 {
   u32 exp = (x >> 52) & 0x7ff;
-  if (exp > 896 || (x & ~MathUtil::DOUBLE_SIGN) == 0)
+  if (exp > 896 || (x & ~Common::DOUBLE_SIGN) == 0)
   {
     return ((x >> 32) & 0xc0000000) | ((x >> 29) & 0x3fffffff);
   }

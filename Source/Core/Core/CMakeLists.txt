@@ -5,7 +5,7 @@ add_definitions(-DJSON_NOEXCEPTION=1 -DPRIME_DUMP_JSON=1)
 include_directories(PrimeMemoryDumping/common)
 include_directories(PrimeMemoryDumping/)
 
-set(SRCS
+add_library(core
   ActionReplay.cpp
   Analytics.cpp
   ARDecrypt.cpp
@@ -14,7 +14,6 @@ set(SRCS
   Core.cpp
   CoreTiming.cpp
   DSPEmulator.cpp
-  ec_wii.cpp
   GeckoCodeConfig.cpp
   GeckoCode.cpp
   HotkeyManager.cpp
@@ -24,9 +23,10 @@ set(SRCS
   NetPlayServer.cpp
   PatchEngine.cpp
   State.cpp
-			PrimeMemoryDumpingDolphin/PrimeMemoryDumping.cpp
-			PrimeMemoryDumpingDolphin/GameMemory.cpp
-			PrimeMemoryDumping/prime1/Prime1JsonDumper.cpp
+  SysConf.cpp
+  PrimeMemoryDumpingDolphin/PrimeMemoryDumping.cpp
+  PrimeMemoryDumpingDolphin/GameMemory.cpp
+  PrimeMemoryDumping/prime1/Prime1JsonDumper.cpp
   TitleDatabase.cpp
   WiiRoot.cpp
   WiiUtils.cpp
@@ -48,18 +48,18 @@ set(SRCS
   Debugger/Dump.cpp
   Debugger/PPCDebugInterface.cpp
   Debugger/RSO.cpp
-  DSP/DSPAssembler.cpp
-  DSP/DSPDisassembler.cpp
   DSP/DSPAccelerator.cpp
+  DSP/DSPAnalyzer.cpp
+  DSP/DSPAssembler.cpp
   DSP/DSPCaptureLogger.cpp
+  DSP/DSPCodeUtil.cpp
+  DSP/DSPCore.cpp
+  DSP/DSPDisassembler.cpp
   DSP/DSPHWInterface.cpp
   DSP/DSPMemoryMap.cpp
   DSP/DSPStacks.cpp
-  DSP/DSPAnalyzer.cpp
-  DSP/DSPCodeUtil.cpp
-  DSP/LabelMap.cpp
-  DSP/DSPCore.cpp
   DSP/DSPTables.cpp
+  DSP/LabelMap.cpp
   DSP/Interpreter/DSPIntArithmetic.cpp
   DSP/Interpreter/DSPIntBranch.cpp
   DSP/Interpreter/DSPIntCCUtil.cpp
@@ -68,16 +68,8 @@ set(SRCS
   DSP/Interpreter/DSPIntLoadStore.cpp
   DSP/Interpreter/DSPIntMisc.cpp
   DSP/Interpreter/DSPIntMultiplier.cpp
-  DSP/Jit/DSPEmitter.cpp
-  DSP/Jit/DSPJitRegCache.cpp
-  DSP/Jit/DSPJitExtOps.cpp
-  DSP/Jit/DSPJitBranch.cpp
-  DSP/Jit/DSPJitCCUtil.cpp
-  DSP/Jit/DSPJitArithmetic.cpp
-  DSP/Jit/DSPJitLoadStore.cpp
-  DSP/Jit/DSPJitMultiplier.cpp
-  DSP/Jit/DSPJitUtil.cpp
-  DSP/Jit/DSPJitMisc.cpp
+  DSP/Interpreter/DSPIntTables.cpp
+  DSP/Jit/DSPEmitterBase.cpp
   FifoPlayer/FifoAnalyzer.cpp
   FifoPlayer/FifoDataFile.cpp
   FifoPlayer/FifoPlaybackAnalyzer.cpp
@@ -160,7 +152,7 @@ set(SRCS
   HW/WiimoteEmu/Encryption.cpp
   HW/WiimoteEmu/Speaker.cpp
   HW/WiimoteReal/WiimoteReal.cpp
-  HW/WiiSaveCrypted.cpp
+  HW/WiiSave.cpp
   IOS/Device.cpp
   IOS/DeviceStub.cpp
   IOS/IOS.cpp
@@ -176,8 +168,10 @@ set(SRCS
   IOS/ES/TitleInformation.cpp
   IOS/ES/TitleManagement.cpp
   IOS/ES/Views.cpp
-  IOS/FS/FileIO.cpp
-  IOS/FS/FS.cpp
+  IOS/FS/FileSystem.cpp
+  IOS/FS/FileSystemProxy.cpp
+  IOS/FS/HostBackend/File.cpp
+  IOS/FS/HostBackend/FS.cpp
   IOS/Network/ICMPLin.cpp
   IOS/Network/MACUtils.cpp
   IOS/Network/Socket.cpp
@@ -239,7 +233,18 @@ set(SRCS
 )
 
 if(_M_X86)
-  set(SRCS ${SRCS}
+  target_sources(core PRIVATE
+    DSP/Jit/x64/DSPEmitter.cpp
+    DSP/Jit/x64/DSPJitRegCache.cpp
+    DSP/Jit/x64/DSPJitExtOps.cpp
+    DSP/Jit/x64/DSPJitBranch.cpp
+    DSP/Jit/x64/DSPJitCCUtil.cpp
+    DSP/Jit/x64/DSPJitArithmetic.cpp
+    DSP/Jit/x64/DSPJitLoadStore.cpp
+    DSP/Jit/x64/DSPJitMisc.cpp
+    DSP/Jit/x64/DSPJitMultiplier.cpp
+    DSP/Jit/x64/DSPJitTables.cpp
+    DSP/Jit/x64/DSPJitUtil.cpp
     PowerPC/Jit64/FPURegCache.cpp
     PowerPC/Jit64/GPRRegCache.cpp
     PowerPC/Jit64/Jit64_Tables.cpp
@@ -263,7 +268,7 @@ if(_M_X86)
     PowerPC/Jit64Common/TrampolineCache.cpp
   )
 elseif(_M_ARM_64)
-  set(SRCS ${SRCS}
+  target_sources(core PRIVATE
     PowerPC/JitArm64/Jit.cpp
     PowerPC/JitArm64/JitAsm.cpp
     PowerPC/JitArm64/JitArm64Cache.cpp
@@ -282,53 +287,70 @@ elseif(_M_ARM_64)
   )
 endif()
 
-set(LIBS
+target_link_libraries(core
+PUBLIC
   audiocommon
-  bdisasm
   common
   cubeb
   discio
   enet
   inputcommon
-  ${LZO}
+  ${MBEDTLS_LIBRARIES}
   pugixml
   sfml-network
   sfml-system
   videonull
   videoogl
   videosoftware
-  z
+
+PRIVATE
+  bdisasm
+  ${LZO}
+  ZLIB::ZLIB
 )
+
+if (APPLE)
+  target_link_libraries(core
+  PRIVATE
+    ${CORESERV_LIBRARY}
+    ${IOB_LIBRARY}
+    ${IOK_LIBRARY}
+  )
+endif()
 
 if(LIBUSB_FOUND)
   # Using shared LibUSB
-  set(LIBS ${LIBS} ${LIBUSB_LIBRARIES})
-  set(SRCS ${SRCS}
+  target_link_libraries(core PUBLIC ${LIBUSB_LIBRARIES})
+  target_sources(core PRIVATE
     IOS/USB/LibusbDevice.cpp
     IOS/USB/Bluetooth/BTReal.cpp
   )
 endif()
 
 if(NOT APPLE)
-  set(LIBS ${LIBS} videovulkan)
+  target_link_libraries(core PUBLIC videovulkan)
 endif()
 
-set(LIBS ${LIBS} ${MBEDTLS_LIBRARIES})
-
 if(WIN32)
-  set(SRCS ${SRCS} HW/EXI/BBA-TAP/TAP_Win32.cpp HW/WiimoteReal/IOWin.cpp)
-  list(APPEND LIBS
+  target_sources(core PRIVATE
+    HW/EXI/BBA-TAP/TAP_Win32.cpp
+    HW/WiimoteReal/IOWin.cpp
+  )
+  target_link_libraries(core PUBLIC
     videod3d
     setupapi.lib
     iphlpapi.lib
   )
 elseif(APPLE)
-  set(SRCS ${SRCS} HW/EXI/BBA-TAP/TAP_Apple.cpp HW/WiimoteReal/IOdarwin.mm)
-  set(LIBS ${LIBS} ${IOB_LIBRARY})
+  target_sources(core PRIVATE
+    HW/EXI/BBA-TAP/TAP_Apple.cpp
+    HW/WiimoteReal/IOdarwin.mm
+  )
+  target_link_libraries(core PUBLIC ${IOB_LIBRARY})
 elseif(UNIX)
-  set(SRCS ${SRCS} HW/EXI/BBA-TAP/TAP_Unix.cpp)
+  target_sources(core PRIVATE HW/EXI/BBA-TAP/TAP_Unix.cpp)
   if(ANDROID)
-    set(SRCS ${SRCS} HW/WiimoteReal/IOAndroid.cpp)
+    target_sources(core PRIVATE HW/WiimoteReal/IOAndroid.cpp)
   endif()
 endif()
 
@@ -339,9 +361,9 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(BlueZ)
     if(BLUEZ_FOUND)
       message(STATUS "BlueZ found, enabling bluetooth support")
-      set(SRCS ${SRCS} HW/WiimoteReal/IOLinux.cpp)
-      set(LIBS ${LIBS} BlueZ::BlueZ)
-      add_definitions(-DHAVE_BLUEZ=1)
+      target_sources(core PRIVATE HW/WiimoteReal/IOLinux.cpp)
+      target_link_libraries(core PUBLIC BlueZ::BlueZ)
+      target_compile_definitions(core PRIVATE -DHAVE_BLUEZ=1)
     else()
       message(STATUS "BlueZ NOT found, disabling bluetooth support")
     endif()
@@ -351,17 +373,15 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 endif()
 
 if(TARGET Hidapi::Hidapi)
-  set(SRCS ${SRCS} HW/WiimoteReal/IOhidapi.cpp)
-  list(APPEND LIBS Hidapi::Hidapi)
-  add_definitions(-DHAVE_HIDAPI=1)
+  target_sources(core PRIVATE HW/WiimoteReal/IOhidapi.cpp)
+  target_link_libraries(core PUBLIC Hidapi::Hidapi)
+  target_compile_definitions(core PRIVATE -DHAVE_HIDAPI=1)
 endif()
 
 if(GDBSTUB)
-  set(SRCS ${SRCS} PowerPC/GDBStub.cpp)
+  target_sources(core PRIVATE PowerPC/GDBStub.cpp)
 endif()
 
 if(UNIX)
-  set(SRCS ${SRCS} MemoryWatcher.cpp)
+  target_sources(core PRIVATE MemoryWatcher.cpp)
 endif()
-
-add_dolphin_library(core "${SRCS}" "${LIBS}")

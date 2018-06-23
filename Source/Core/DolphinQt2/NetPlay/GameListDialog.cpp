@@ -14,6 +14,7 @@
 GameListDialog::GameListDialog(QWidget* parent) : QDialog(parent)
 {
   setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
+  setWindowTitle(tr("Select a game"));
 
   CreateWidgets();
   ConnectWidgets();
@@ -51,14 +52,14 @@ void GameListDialog::PopulateGameList()
 
   for (int i = 0; i < game_list_model->rowCount(QModelIndex()); i++)
   {
-    auto* item = new QListWidgetItem(game_list_model->GetUniqueID(i));
+    auto* item = new QListWidgetItem(game_list_model->GetUniqueIdentifier(i));
     m_game_list->addItem(item);
   }
 
   m_game_list->sortItems();
 }
 
-const QString& GameListDialog::GetSelectedUniqueID()
+const QString& GameListDialog::GetSelectedUniqueID() const
 {
   return m_game_id;
 }

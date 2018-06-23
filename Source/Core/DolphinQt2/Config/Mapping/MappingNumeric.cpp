@@ -5,10 +5,13 @@
 #include "DolphinQt2/Config/Mapping/MappingNumeric.h"
 
 #include "DolphinQt2/Config/Mapping/MappingWidget.h"
+
+#include "InputCommon/ControllerEmu/ControllerEmu.h"
 #include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
+#include "InputCommon/ControllerInterface/ControllerInterface.h"
 
 MappingNumeric::MappingNumeric(MappingWidget* widget, ControllerEmu::NumericSetting* setting)
-    : m_parent(widget), m_setting(setting), m_range(setting->m_high - setting->m_low)
+    : m_parent(widget), m_setting(setting)
 {
   setRange(setting->m_low, setting->m_high);
   Update();
@@ -19,19 +22,20 @@ void MappingNumeric::Connect()
 {
   connect(this, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), this,
           [this](int value) {
-            m_setting->SetValue(static_cast<double>(value - m_setting->m_low) / m_range);
+            m_setting->SetValue(static_cast<double>(value) / 100);
             m_parent->SaveSettings();
+            m_parent->GetController()->UpdateReferences(g_controller_interface);
           });
 }
 
 void MappingNumeric::Clear()
 {
-  m_setting->SetValue(m_setting->m_low + (m_setting->m_low + m_setting->m_high) / 2);
+  m_setting->SetValue(m_setting->m_default_value);
   m_parent->SaveSettings();
   Update();
 }
 
 void MappingNumeric::Update()
 {
-  setValue(m_setting->m_low + m_setting->GetValue() * m_range);
+  setValue(m_setting->GetValue() * 100);
 }

@@ -31,7 +31,11 @@ struct EFBEncodeParams
   u32 DestWidth;
   u32 ScaleFactor;
   float y_scale;
-  u32 padding[3];
+  float gamma_rcp;
+  float clamp_top;
+  float clamp_bottom;
+  float filter_coefficients[3];
+  u32 padding;
 };
 
 PSTextureEncoder::PSTextureEncoder()
@@ -43,12 +47,12 @@ PSTextureEncoder::~PSTextureEncoder() = default;
 void PSTextureEncoder::Init()
 {
   // TODO: Move this to a constant somewhere in common.
-  TextureConfig encoding_texture_config(EFB_WIDTH * 4, 1024, 1, 1, AbstractTextureFormat::BGRA8,
+  TextureConfig encoding_texture_config(EFB_WIDTH * 4, 1024, 1, 1, 1, AbstractTextureFormat::BGRA8,
                                         true);
   m_encoding_render_texture = g_renderer->CreateTexture(encoding_texture_config);
   m_encoding_readback_texture =
       g_renderer->CreateStagingTexture(StagingTextureType::Readback, encoding_texture_config);
-  _assert_(m_encoding_render_texture && m_encoding_readback_texture);
+  ASSERT(m_encoding_render_texture && m_encoding_readback_texture);
 
   // Create constant buffer for uploading data to shaders
   D3D11_BUFFER_DESC bd = CD3D11_BUFFER_DESC(sizeof(EFBEncodeParams), D3D11_BIND_CONSTANT_BUFFER);
@@ -66,9 +70,11 @@ void PSTextureEncoder::Shutdown()
   SAFE_RELEASE(m_encode_params);
 }
 
-void PSTextureEncoder::Encode(u8* dst, const EFBCopyParams& params, u32 native_width,
-                              u32 bytes_per_row, u32 num_blocks_y, u32 memory_stride,
-                              const EFBRectangle& src_rect, bool scale_by_half)
+void PSTextureEncoder::Encode(
+    u8* dst, const EFBCopyParams& params, u32 native_width, u32 bytes_per_row, u32 num_blocks_y,
+    u32 memory_stride, const EFBRectangle& src_rect, bool scale_by_half, float y_scale, float gamma,
+    bool clamp_top, bool clamp_bottom,
+    const TextureCacheBase::CopyFilterCoefficientArray& filter_coefficients)
 {
   // Resolve MSAA targets before copying.
   // FIXME: Instead of resolving EFB, it would be better to pick out a
@@ -101,7 +107,13 @@ void PSTextureEncoder::Encode(u8* dst, const EFBCopyParams& params, u32 native_w
     encode_params.SrcTop = src_rect.top;
     encode_params.DestWidth = native_width;
     encode_params.ScaleFactor = scale_by_half ? 2 : 1;
-    encode_params.y_scale = params.y_scale;
+    encode_params.y_scale = y_scale;
+    encode_params.gamma_rcp = 1.0f / gamma;
+    encode_params.clamp_top = clamp_top ? src_rect.top / float(EFB_HEIGHT) : 0.0f;
+    encode_params.clamp_bottom = clamp_bottom ? src_rect.bottom / float(EFB_HEIGHT) : 1.0f;
+    for (size_t i = 0; i < filter_coefficients.size(); i++)
+      encode_params.filter_coefficients[i] = filter_coefficients[i];
+
     D3D::context->UpdateSubresource(m_encode_params, 0, nullptr, &encode_params, 0, 0);
     D3D::stateman->SetPixelConstants(m_encode_params);
 
@@ -109,7 +121,7 @@ void PSTextureEncoder::Encode(u8* dst, const EFBCopyParams& params, u32 native_w
     // TODO: This only produces perfect downsampling for 2x IR, other resolutions will need more
     //       complex down filtering to average all pixels and produce the correct result.
     // Also, box filtering won't be correct for anything other than 1x IR
-    if (scale_by_half || g_renderer->GetEFBScale() != 1 || params.y_scale > 1.0f)
+    if (scale_by_half || g_renderer->GetEFBScale() != 1 || y_scale > 1.0f)
       D3D::SetLinearCopySampler();
     else
       D3D::SetPointCopySampler();
@@ -131,8 +143,6 @@ void PSTextureEncoder::Encode(u8* dst, const EFBCopyParams& params, u32 native_w
     }
   }
 
-  // Restore API
-  FramebufferManager::BindEFBRenderTarget();
   g_renderer->RestoreAPIState();
 }
 
@@ -159,4 +169,4 @@ ID3D11PixelShader* PSTextureEncoder::GetEncodingPixelShader(const EFBCopyParams&
   m_encoding_shaders.emplace(params, newShader);
   return newShader;
 }
-}
+}  // namespace DX11

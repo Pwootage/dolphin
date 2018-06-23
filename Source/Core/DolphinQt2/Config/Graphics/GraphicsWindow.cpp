@@ -12,18 +12,25 @@
 #include <QVBoxLayout>
 
 #include "Core/ConfigManager.h"
+
 #include "DolphinQt2/Config/Graphics/AdvancedWidget.h"
 #include "DolphinQt2/Config/Graphics/EnhancementsWidget.h"
 #include "DolphinQt2/Config/Graphics/GeneralWidget.h"
 #include "DolphinQt2/Config/Graphics/HacksWidget.h"
 #include "DolphinQt2/Config/Graphics/SoftwareRendererWidget.h"
 #include "DolphinQt2/MainWindow.h"
+#include "DolphinQt2/QtUtils/WrapInScrollArea.h"
+
+#include "VideoCommon/VideoBackendBase.h"
+#include "VideoCommon/VideoConfig.h"
 
 GraphicsWindow::GraphicsWindow(X11Utils::XRRConfiguration* xrr_config, MainWindow* parent)
     : QDialog(parent), m_xrr_config(xrr_config)
 {
+  g_Config.Refresh();
+  g_video_backend->InitBackendInfo();
+
   CreateMainLayout();
-  ConnectWidgets();
 
   setWindowTitle(tr("Graphics"));
   setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
@@ -39,10 +46,12 @@ void GraphicsWindow::CreateMainLayout()
   m_description =
       new QLabel(tr("Move the mouse pointer over an option to display a detailed description."));
   m_tab_widget = new QTabWidget();
-  m_button_box = new QDialogButtonBox(QDialogButtonBox::Ok);
+  m_button_box = new QDialogButtonBox(QDialogButtonBox::Close);
+
+  connect(m_button_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
   description_box->setLayout(description_layout);
-  description_box->setMinimumHeight(205);
+  description_box->setFixedHeight(200);
 
   m_description->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   m_description->setWordWrap(true);
@@ -65,45 +74,61 @@ void GraphicsWindow::CreateMainLayout()
   connect(m_software_renderer, &SoftwareRendererWidget::BackendChanged, this,
           &GraphicsWindow::OnBackendChanged);
 
+  m_wrapped_general = GetWrappedWidget(m_general_widget, this, 50, 305);
+  m_wrapped_enhancements = GetWrappedWidget(m_enhancements_widget, this, 50, 305);
+  m_wrapped_hacks = GetWrappedWidget(m_hacks_widget, this, 50, 305);
+  m_wrapped_advanced = GetWrappedWidget(m_advanced_widget, this, 50, 305);
+  m_wrapped_software = GetWrappedWidget(m_software_renderer, this, 50, 305);
+
   if (SConfig::GetInstance().m_strVideoBackend != "Software Renderer")
   {
-    m_tab_widget->addTab(m_general_widget, tr("General"));
-    m_tab_widget->addTab(m_enhancements_widget, tr("Enhancements"));
-    m_tab_widget->addTab(m_hacks_widget, tr("Hacks"));
-    m_tab_widget->addTab(m_advanced_widget, tr("Advanced"));
+    m_tab_widget->addTab(m_wrapped_general, tr("General"));
+    m_tab_widget->addTab(m_wrapped_enhancements, tr("Enhancements"));
+    m_tab_widget->addTab(m_wrapped_hacks, tr("Hacks"));
+    m_tab_widget->addTab(m_wrapped_advanced, tr("Advanced"));
   }
   else
   {
-    m_tab_widget->addTab(m_software_renderer, tr("Software Renderer"));
+    m_tab_widget->addTab(m_wrapped_software, tr("Software Renderer"));
   }
 
   setLayout(main_layout);
 }
 
-void GraphicsWindow::ConnectWidgets()
+void GraphicsWindow::OnBackendChanged(const QString& backend_name)
 {
-  connect(m_button_box, &QDialogButtonBox::accepted, this, &QDialog::accept);
-}
+  SConfig::GetInstance().m_strVideoBackend = backend_name.toStdString();
 
-void GraphicsWindow::OnBackendChanged(const QString& backend)
-{
-  setWindowTitle(tr("Dolphin %1 Graphics Configuration").arg(backend));
-  if (backend == QStringLiteral("Software Renderer") && m_tab_widget->count() > 1)
+  for (const auto& backend : g_available_video_backends)
   {
-    m_tab_widget->clear();
-    m_tab_widget->addTab(m_software_renderer, tr("Software Renderer"));
+    if (backend->GetName() == backend_name.toStdString())
+    {
+      g_Config.Refresh();
+
+      g_video_backend = backend.get();
+      g_video_backend->InitBackendInfo();
+      break;
+    }
   }
 
-  if (backend != QStringLiteral("Software Renderer") && m_tab_widget->count() == 1)
+  setWindowTitle(tr("%1 Graphics Configuration")
+                     .arg(QString::fromStdString(g_video_backend->GetDisplayName())));
+  if (backend_name == QStringLiteral("Software Renderer") && m_tab_widget->count() > 1)
   {
     m_tab_widget->clear();
-    m_tab_widget->addTab(m_general_widget, tr("General"));
-    m_tab_widget->addTab(m_enhancements_widget, tr("Enhancements"));
-    m_tab_widget->addTab(m_hacks_widget, tr("Hacks"));
-    m_tab_widget->addTab(m_advanced_widget, tr("Advanced"));
+    m_tab_widget->addTab(m_wrapped_software, tr("Software Renderer"));
   }
 
-  emit BackendChanged(backend);
+  if (backend_name != QStringLiteral("Software Renderer") && m_tab_widget->count() == 1)
+  {
+    m_tab_widget->clear();
+    m_tab_widget->addTab(m_wrapped_general, tr("General"));
+    m_tab_widget->addTab(m_wrapped_enhancements, tr("Enhancements"));
+    m_tab_widget->addTab(m_wrapped_hacks, tr("Hacks"));
+    m_tab_widget->addTab(m_wrapped_advanced, tr("Advanced"));
+  }
+
+  emit BackendChanged(backend_name);
 }
 
 void GraphicsWindow::RegisterWidget(GraphicsWidget* widget)

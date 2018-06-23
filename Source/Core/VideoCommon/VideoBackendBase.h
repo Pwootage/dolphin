@@ -35,25 +35,19 @@ class VideoBackendBase
 {
 public:
   virtual ~VideoBackendBase() {}
-  virtual unsigned int PeekMessages() = 0;
-
   virtual bool Initialize(void* window_handle) = 0;
   virtual void Shutdown() = 0;
 
   virtual std::string GetName() const = 0;
   virtual std::string GetDisplayName() const { return GetName(); }
-  void ShowConfig(void*);
+  void ShowConfig(void* parent_handle);
   virtual void InitBackendInfo() = 0;
 
-  virtual void Video_Prepare() = 0;
   void Video_ExitLoop();
 
-  void Video_CleanupShared();  // called from gl/d3d thread
-  virtual void Video_Cleanup() = 0;
+  void Video_BeginField(u32 xfb_addr, u32 fb_width, u32 fb_stride, u32 fb_height, u64 ticks);
 
-  void Video_BeginField(u32, u32, u32, u32, u64);
-
-  u32 Video_AccessEFB(EFBAccessType, u32, u32, u32);
+  u32 Video_AccessEFB(EFBAccessType type, u32 x, u32 y, u32 data);
   u32 Video_GetQueryResult(PerfQueryType type);
   u16 Video_GetBoundingBox(int index);
 
@@ -70,7 +64,6 @@ public:
 protected:
   void InitializeShared();
   void ShutdownShared();
-  void CleanupShared();
 
   bool m_initialized = false;
   bool m_invalid = false;

@@ -44,24 +44,49 @@ struct TASWiimoteReport
 };
 
 constexpr std::array<int, 12> s_gc_pad_buttons_bitmask{{
-    PAD_BUTTON_DOWN, PAD_BUTTON_UP, PAD_BUTTON_LEFT, PAD_BUTTON_RIGHT, PAD_BUTTON_A, PAD_BUTTON_B,
-    PAD_BUTTON_X, PAD_BUTTON_Y, PAD_TRIGGER_Z, PAD_TRIGGER_L, PAD_TRIGGER_R, PAD_BUTTON_START,
+    PAD_BUTTON_DOWN,
+    PAD_BUTTON_UP,
+    PAD_BUTTON_LEFT,
+    PAD_BUTTON_RIGHT,
+    PAD_BUTTON_A,
+    PAD_BUTTON_B,
+    PAD_BUTTON_X,
+    PAD_BUTTON_Y,
+    PAD_TRIGGER_Z,
+    PAD_TRIGGER_L,
+    PAD_TRIGGER_R,
+    PAD_BUTTON_START,
 }};
 
 constexpr std::array<int, 11> s_wii_buttons_bitmask{{
-    WiimoteEmu::Wiimote::PAD_DOWN, WiimoteEmu::Wiimote::PAD_UP, WiimoteEmu::Wiimote::PAD_LEFT,
-    WiimoteEmu::Wiimote::PAD_RIGHT, WiimoteEmu::Wiimote::BUTTON_A, WiimoteEmu::Wiimote::BUTTON_B,
-    WiimoteEmu::Wiimote::BUTTON_ONE, WiimoteEmu::Wiimote::BUTTON_TWO,
-    WiimoteEmu::Wiimote::BUTTON_PLUS, WiimoteEmu::Wiimote::BUTTON_MINUS,
+    WiimoteEmu::Wiimote::PAD_DOWN,
+    WiimoteEmu::Wiimote::PAD_UP,
+    WiimoteEmu::Wiimote::PAD_LEFT,
+    WiimoteEmu::Wiimote::PAD_RIGHT,
+    WiimoteEmu::Wiimote::BUTTON_A,
+    WiimoteEmu::Wiimote::BUTTON_B,
+    WiimoteEmu::Wiimote::BUTTON_ONE,
+    WiimoteEmu::Wiimote::BUTTON_TWO,
+    WiimoteEmu::Wiimote::BUTTON_PLUS,
+    WiimoteEmu::Wiimote::BUTTON_MINUS,
     WiimoteEmu::Wiimote::BUTTON_HOME,
 }};
 
 constexpr std::array<int, 15> s_cc_buttons_bitmask{{
-    WiimoteEmu::Classic::PAD_DOWN, WiimoteEmu::Classic::PAD_UP, WiimoteEmu::Classic::PAD_LEFT,
-    WiimoteEmu::Classic::PAD_RIGHT, WiimoteEmu::Classic::BUTTON_A, WiimoteEmu::Classic::BUTTON_B,
-    WiimoteEmu::Classic::BUTTON_X, WiimoteEmu::Classic::BUTTON_Y, WiimoteEmu::Classic::BUTTON_PLUS,
-    WiimoteEmu::Classic::BUTTON_MINUS, WiimoteEmu::Classic::TRIGGER_L,
-    WiimoteEmu::Classic::TRIGGER_R, WiimoteEmu::Classic::BUTTON_ZR, WiimoteEmu::Classic::BUTTON_ZL,
+    WiimoteEmu::Classic::PAD_DOWN,
+    WiimoteEmu::Classic::PAD_UP,
+    WiimoteEmu::Classic::PAD_LEFT,
+    WiimoteEmu::Classic::PAD_RIGHT,
+    WiimoteEmu::Classic::BUTTON_A,
+    WiimoteEmu::Classic::BUTTON_B,
+    WiimoteEmu::Classic::BUTTON_X,
+    WiimoteEmu::Classic::BUTTON_Y,
+    WiimoteEmu::Classic::BUTTON_PLUS,
+    WiimoteEmu::Classic::BUTTON_MINUS,
+    WiimoteEmu::Classic::TRIGGER_L,
+    WiimoteEmu::Classic::TRIGGER_R,
+    WiimoteEmu::Classic::BUTTON_ZR,
+    WiimoteEmu::Classic::BUTTON_ZL,
     WiimoteEmu::Classic::BUTTON_HOME,
 }};
 
@@ -819,7 +844,9 @@ void TASInputDlg::GetValues(u8* data, WiimoteEmu::ReportFeatures rptf, int ext,
       }
       else
       {
-        memset(data, 0xFF, sizeof(wm_ir_extended) * 4);
+        // TODO: this code doesnt work, resulting in no IR TAS inputs in e.g. wii sports menu when
+        // no remote extension is used
+        memset(irData, 0xFF, sizeof(wm_ir_extended) * 4);
         wm_ir_extended* const ir_data = (wm_ir_extended*)irData;
         for (size_t i = 0; i < x.size(); ++i)
         {
@@ -1198,8 +1225,8 @@ void TASInputDlg::InvalidateExtension()
 void TASInputDlg::UpdateFromInvalidatedButton(wxCommandEvent& event)
 {
   auto* button = static_cast<Button*>(event.GetClientData());
-  _assert_msg_(PAD, button->id == button->checkbox->GetId(), "Button ids do not match: %i != %i",
-               button->id, button->checkbox->GetId());
+  ASSERT_MSG(PAD, button->id == button->checkbox->GetId(), "Button ids do not match: %i != %i",
+             button->id, button->checkbox->GetId());
   button->checkbox->SetValue(button->value);
   button->is_checked = button->value;
 }
@@ -1207,8 +1234,8 @@ void TASInputDlg::UpdateFromInvalidatedButton(wxCommandEvent& event)
 void TASInputDlg::UpdateFromInvalidatedControl(wxCommandEvent& event)
 {
   auto* control = static_cast<Control*>(event.GetClientData());
-  _assert_msg_(PAD, control->text_id == control->text->GetId(),
-               "Control ids do not match: %i != %i", control->text_id, control->text->GetId());
+  ASSERT_MSG(PAD, control->text_id == control->text->GetId(), "Control ids do not match: %i != %i",
+             control->text_id, control->text->GetId());
   control->text->SetValue(std::to_string(control->value));
 }
 

@@ -19,9 +19,11 @@
 #include <QVBoxLayout>
 
 #include "Core/Core.h"
+
 #include "DolphinQt2/Config/Mapping/MappingCommon.h"
 #include "DolphinQt2/Config/Mapping/MappingWindow.h"
 #include "DolphinQt2/QtUtils/BlockUserInputFilter.h"
+
 #include "InputCommon/ControlReference/ControlReference.h"
 #include "InputCommon/ControllerEmu/ControllerEmu.h"
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
@@ -34,7 +36,9 @@ IOWindow::IOWindow(QWidget* parent, ControllerEmu::EmulatedController* controlle
 {
   CreateMainLayout();
   ConnectWidgets();
+
   setWindowTitle(type == IOWindow::Type::Input ? tr("Configure Input") : tr("Configure Output"));
+  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
   Update();
 }
@@ -71,7 +75,7 @@ void IOWindow::CreateMainLayout()
   m_range_slider->setMaximum(500);
   m_range_spinbox->setMinimum(-500);
   m_range_spinbox->setMaximum(500);
-  m_main_layout->addItem(range_hbox);
+  m_main_layout->addLayout(range_hbox);
 
   // Options (Buttons, Outputs) and action buttons
   for (QPushButton* button : {m_select_button, m_detect_button, m_or_button, m_and_button,
@@ -114,7 +118,7 @@ void IOWindow::Update()
   m_range_spinbox->setValue(m_reference->range * SLIDER_TICK_COUNT);
   m_range_slider->setValue(m_reference->range * SLIDER_TICK_COUNT);
 
-  m_devq.FromString(m_controller->GetDefaultDevice().ToString());
+  m_devq = m_controller->GetDefaultDevice();
 
   UpdateDeviceList();
   UpdateOptionList();
@@ -183,7 +187,7 @@ void IOWindow::OnDetectButtonPressed()
     btn->setText(QStringLiteral("..."));
 
     const auto expr = MappingCommon::DetectExpression(
-        m_reference, g_controller_interface.FindDevice(m_devq).get(), m_devq, m_devq);
+        m_reference, g_controller_interface.FindDevice(m_devq).get(), m_devq);
 
     btn->setText(old_label);
 
@@ -198,7 +202,8 @@ void IOWindow::OnDetectButtonPressed()
     releaseMouse();
     releaseKeyboard();
     removeEventFilter(BlockUserInputFilter::Instance());
-  }).detach();
+  })
+      .detach();
 }
 
 void IOWindow::OnRangeChanged(int value)
@@ -213,6 +218,9 @@ void IOWindow::UpdateOptionList()
   m_option_list->clear();
 
   const auto device = g_controller_interface.FindDevice(m_devq);
+
+  if (device == nullptr)
+    return;
 
   if (m_reference->IsInput())
   {

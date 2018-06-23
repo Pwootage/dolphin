@@ -8,6 +8,7 @@
 #include <QVBoxLayout>
 
 #include "DolphinQt2/Config/Mapping/GCKeyboardEmu.h"
+
 #include "InputCommon/InputConfig.h"
 
 #include "Core/HW/GCKeyboard.h"
@@ -34,14 +35,8 @@ void GCKeyboardEmu::CreateMainLayout()
       CreateGroupBox(QStringLiteral(""), Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb4x)));
 
   auto* vbox_layout = new QVBoxLayout();
-  auto* options_box =
-      CreateGroupBox(tr("Options"), Keyboard::GetGroup(GetPort(), KeyboardGroup::Options));
-
-  options_box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-
   vbox_layout->addWidget(
       CreateGroupBox(QStringLiteral(""), Keyboard::GetGroup(GetPort(), KeyboardGroup::Kb5x)));
-  vbox_layout->addWidget(options_box);
 
   m_main_layout->addLayout(vbox_layout);
 

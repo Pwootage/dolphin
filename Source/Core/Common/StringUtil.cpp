@@ -3,6 +3,7 @@
 // Refer to the license.txt file included.
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
@@ -29,6 +30,7 @@
 constexpr u32 CODEPAGE_SHIFT_JIS = 932;
 constexpr u32 CODEPAGE_WINDOWS_1252 = 1252;
 #else
+#include <codecvt>
 #include <errno.h>
 #include <iconv.h>
 #include <locale.h>
@@ -172,7 +174,11 @@ std::string StringFromFormatV(const char* format, va_list args)
   locale_t previousLocale = uselocale(GetCLocale());
 #endif
   if (vasprintf(&buf, format, args) < 0)
+  {
     ERROR_LOG(COMMON, "Unable to allocate memory for string");
+    buf = nullptr;
+  }
+
 #if !defined(ANDROID) && !defined(__HAIKU__) && !defined(__OpenBSD__)
   uselocale(previousLocale);
 #endif
@@ -286,7 +292,42 @@ bool TryParse(const std::string& str, bool* const output)
   return true;
 }
 
-std::string StringFromBool(bool value)
+std::string ValueToString(u16 value)
+{
+  return StringFromFormat("0x%04x", value);
+}
+
+std::string ValueToString(u32 value)
+{
+  return StringFromFormat("0x%08x", value);
+}
+
+std::string ValueToString(u64 value)
+{
+  return StringFromFormat("0x%016" PRIx64, value);
+}
+
+std::string ValueToString(float value)
+{
+  return StringFromFormat("%#.9g", value);
+}
+
+std::string ValueToString(double value)
+{
+  return StringFromFormat("%#.17g", value);
+}
+
+std::string ValueToString(int value)
+{
+  return std::to_string(value);
+}
+
+std::string ValueToString(s64 value)
+{
+  return StringFromFormat("%" PRId64, value);
+}
+
+std::string ValueToString(bool value)
 {
   return value ? "True" : "False";
 }
@@ -302,7 +343,7 @@ bool SplitPath(const std::string& full_path, std::string* _pPath, std::string* _
 #ifdef _WIN32
                                           ":"
 #endif
-                                          );
+  );
   if (std::string::npos == dir_end)
     dir_end = 0;
   else
@@ -472,6 +513,14 @@ std::string CP1252ToUTF8(const std::string& input)
   return UTF16ToUTF8(CPToUTF16(CODEPAGE_WINDOWS_1252, input));
 }
 
+std::string UTF16BEToUTF8(const char16_t* str, size_t max_size)
+{
+  const char16_t* str_end = std::find(str, str + max_size, '\0');
+  std::wstring result(static_cast<size_t>(str_end - str), '\0');
+  std::transform(str, str_end, result.begin(), static_cast<u16 (&)(u16)>(Common::swap16));
+  return UTF16ToUTF8(result);
+}
+
 #else
 
 template <typename T>
@@ -556,15 +605,14 @@ std::string UTF8ToSHIFTJIS(const std::string& input)
 
 std::string UTF16ToUTF8(const std::wstring& input)
 {
-  return CodeToUTF8("UTF-16LE", input);
+  std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> converter;
+  return converter.to_bytes(input);
 }
-
-#endif
 
 std::string UTF16BEToUTF8(const char16_t* str, size_t max_size)
 {
   const char16_t* str_end = std::find(str, str + max_size, '\0');
-  std::wstring result(static_cast<size_t>(str_end - str), '\0');
-  std::transform(str, str_end, result.begin(), static_cast<u16 (&)(u16)>(Common::swap16));
-  return UTF16ToUTF8(result);
+  return CodeToUTF8("UTF-16BE", std::u16string(str, static_cast<size_t>(str_end - str)));
 }
+
+#endif

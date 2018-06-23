@@ -4,15 +4,18 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
+
 #include <QFileSystemWatcher>
 #include <QMap>
 #include <QSet>
-#include <QSharedPointer>
 #include <QString>
 
+#include "Common/Event.h"
 #include "Common/WorkQueueThread.h"
-#include "DolphinQt2/GameList/GameFile.h"
-#include "DolphinQt2/GameList/GameFileCache.h"
+#include "UICommon/GameFile.h"
+#include "UICommon/GameFileCache.h"
 
 // Watches directories and loads GameFiles in a separate thread.
 // To use this, just add directories using AddDirectory, and listen for the
@@ -24,23 +27,58 @@ class GameTracker final : public QFileSystemWatcher
 public:
   explicit GameTracker(QObject* parent = nullptr);
 
+  // A GameTracker won't emit any signals until this function has been called.
+  // Before you call this function, make sure to call AddDirectory for all
+  // directories you want to track, otherwise games will briefly disappear
+  // until you call AddDirectory and the GameTracker finishes scanning the file system.
+  void Start();
+
   void AddDirectory(const QString& dir);
   void RemoveDirectory(const QString& dir);
+  void ReloadDirectory(const QString& dir);
 
 signals:
-  void GameLoaded(QSharedPointer<GameFile> game);
-  void GameRemoved(const QString& path);
+  void GameLoaded(const std::shared_ptr<const UICommon::GameFile>& game);
+  void GameUpdated(const std::shared_ptr<const UICommon::GameFile>& game);
+  void GameRemoved(const std::string& path);
 
 private:
-  void LoadGame(const QString& path);
+  void LoadCache();
+  void StartInternal();
   void UpdateDirectory(const QString& dir);
   void UpdateFile(const QString& path);
+  void AddDirectoryInternal(const QString& dir);
+  void RemoveDirectoryInternal(const QString& dir);
+  void UpdateDirectoryInternal(const QString& dir);
+  void UpdateFileInternal(const QString& path);
   QSet<QString> FindMissingFiles(const QString& dir);
+  void LoadGame(const QString& path);
+
+  enum class CommandType
+  {
+    LoadCache,
+    Start,
+    AddDirectory,
+    RemoveDirectory,
+    UpdateDirectory,
+    UpdateFile,
+  };
+
+  struct Command
+  {
+    CommandType type;
+    QString path;
+  };
 
   // game path -> directories that track it
   QMap<QString, QSet<QString>> m_tracked_files;
-  Common::WorkQueueThread<QString> m_load_thread;
-  GameFileCache cache;
+  Common::WorkQueueThread<Command> m_load_thread;
+  UICommon::GameFileCache m_cache;
+  Common::Event m_cache_loaded_event;
+  Common::Event m_initial_games_emitted_event;
+  bool m_initial_games_emitted = false;
+  bool m_started = false;
 };
 
-Q_DECLARE_METATYPE(QSharedPointer<GameFile>)
+Q_DECLARE_METATYPE(std::shared_ptr<const UICommon::GameFile>)
+Q_DECLARE_METATYPE(std::string)

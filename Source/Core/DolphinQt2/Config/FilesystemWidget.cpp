@@ -19,10 +19,13 @@
 #include <future>
 
 #include "DiscIO/DiscExtractor.h"
-#include "DiscIO/Enums.h"
 #include "DiscIO/Filesystem.h"
+#include "DiscIO/Volume.h"
+
 #include "DolphinQt2/QtUtils/ActionHelper.h"
 #include "DolphinQt2/Resources.h"
+
+#include "UICommon/UICommon.h"
 
 constexpr int ENTRY_PARTITION = Qt::UserRole;
 constexpr int ENTRY_NAME = Qt::UserRole + 1;
@@ -37,23 +40,32 @@ enum class EntryType
 };
 Q_DECLARE_METATYPE(EntryType);
 
-FilesystemWidget::FilesystemWidget(const GameFile& game)
-    : m_game(game), m_volume(DiscIO::CreateVolumeFromFilename(game.GetFilePath().toStdString()))
+FilesystemWidget::FilesystemWidget(const UICommon::GameFile& game)
+    : m_game(game), m_volume(DiscIO::CreateVolumeFromFilename(game.GetFilePath()))
 {
   CreateWidgets();
   ConnectWidgets();
   PopulateView();
 }
 
+FilesystemWidget::~FilesystemWidget() = default;
+
 void FilesystemWidget::CreateWidgets()
 {
   auto* layout = new QVBoxLayout;
 
-  m_tree_model = new QStandardItemModel(0, 1);
+  m_tree_model = new QStandardItemModel(0, 2);
+  m_tree_model->setHorizontalHeaderLabels({tr("Name"), tr("Size")});
+
   m_tree_view = new QTreeView(this);
   m_tree_view->setModel(m_tree_model);
   m_tree_view->setContextMenuPolicy(Qt::CustomContextMenu);
-  m_tree_view->header()->hide();
+
+  auto* header = m_tree_view->header();
+
+  header->setSectionResizeMode(0, QHeaderView::Stretch);
+  header->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  header->setStretchLastSection(false);
 
 // Windows: Set style to (old) windows, which draws branch lines
 #ifdef _WIN32
@@ -129,7 +141,14 @@ void FilesystemWidget::PopulateDirectory(int partition_id, QStandardItem* root,
     item->setData(QString::fromStdString(info.GetPath()), ENTRY_NAME);
     item->setData(QVariant::fromValue(info.IsDirectory() ? EntryType::Dir : EntryType::File),
                   ENTRY_TYPE);
-    root->appendRow(item);
+
+    const auto size = info.GetTotalSize();
+
+    auto* size_item = new QStandardItem(QString::fromStdString(UICommon::FormatSize(size)));
+    size_item->setTextAlignment(Qt::AlignRight);
+    size_item->setEditable(false);
+
+    root->appendRow({item, size_item});
   }
 }
 
@@ -148,26 +167,45 @@ void FilesystemWidget::ShowContextMenu(const QPoint&)
 
   QMenu* menu = new QMenu(this);
 
-  DiscIO::Partition partition = GetPartitionFromID(item->data(ENTRY_PARTITION).toInt());
-  QString path = item->data(ENTRY_NAME).toString();
-
   EntryType type = item->data(ENTRY_TYPE).value<EntryType>();
 
-  if ((type == EntryType::Disc && m_volume->GetPartitions().empty()) ||
-      type == EntryType::Partition)
+  DiscIO::Partition partition = type == EntryType::Disc ?
+                                    DiscIO::PARTITION_NONE :
+                                    GetPartitionFromID(item->data(ENTRY_PARTITION).toInt());
+  QString path = item->data(ENTRY_NAME).toString();
+
+  const bool is_filesystem_root = (type == EntryType::Disc && m_volume->GetPartitions().empty()) ||
+                                  type == EntryType::Partition;
+
+  if (type == EntryType::Dir || is_filesystem_root)
+  {
+    AddAction(menu, tr("Extract Files..."), this, [this, partition, path] {
+      auto folder = SelectFolder();
+
+      if (!folder.isEmpty())
+        ExtractDirectory(partition, path, folder);
+    });
+  }
+
+  if (is_filesystem_root)
   {
     AddAction(menu, tr("Extract System Data..."), this, [this, partition] {
       auto folder = SelectFolder();
 
-      if (!folder.isEmpty())
-        ExtractSystemData(partition, folder);
+      if (folder.isEmpty())
+        return;
+
+      if (ExtractSystemData(partition, folder))
+        QMessageBox::information(nullptr, tr("Success"), tr("Successfully extracted system data."));
+      else
+        QMessageBox::critical(nullptr, tr("Error"), tr("Failed to extract system data."));
     });
   }
 
   switch (type)
   {
   case EntryType::Disc:
-    AddAction(menu, tr("Extract Entire Disc..."), this, [this, partition, path] {
+    AddAction(menu, tr("Extract Entire Disc..."), this, [this, path] {
       auto folder = SelectFolder();
 
       if (folder.isEmpty())
@@ -179,8 +217,15 @@ void FilesystemWidget::ShowContextMenu(const QPoint&)
       }
       else
       {
-        for (auto& p : m_volume->GetPartitions())
-          ExtractPartition(p, folder);
+        for (DiscIO::Partition& p : m_volume->GetPartitions())
+        {
+          if (const std::optional<u32> partition_type = m_volume->GetPartitionType(p))
+          {
+            const std::string partition_name =
+                DiscIO::DirectoryNameForPartitionType(*partition_type);
+            ExtractPartition(p, folder + QChar(u'/') + QString::fromStdString(partition_name));
+          }
+        }
       }
     });
     break;
@@ -190,17 +235,12 @@ void FilesystemWidget::ShowContextMenu(const QPoint&)
       if (!folder.isEmpty())
         ExtractPartition(partition, folder);
     });
-    menu->addSeparator();
-    AddAction(menu, tr("Check Partition Integrity"), this,
-              [this, partition] { CheckIntegrity(partition); });
-    break;
-  case EntryType::Dir:
-    AddAction(menu, tr("Extract Files..."), this, [this, partition, path] {
-      auto folder = SelectFolder();
-
-      if (!folder.isEmpty())
-        ExtractDirectory(partition, path, folder);
-    });
+    if (m_volume->IsEncryptedAndHashed())
+    {
+      menu->addSeparator();
+      AddAction(menu, tr("Check Partition Integrity"), this,
+                [this, partition] { CheckIntegrity(partition); });
+    }
     break;
   case EntryType::File:
     AddAction(menu, tr("Extract File..."), this, [this, partition, path] {
@@ -209,6 +249,9 @@ void FilesystemWidget::ShowContextMenu(const QPoint&)
       if (!dest.isEmpty())
         ExtractFile(partition, path, dest);
     });
+    break;
+  case EntryType::Dir:
+    // Handled above the switch statement
     break;
   }
 
@@ -222,21 +265,16 @@ DiscIO::Partition FilesystemWidget::GetPartitionFromID(int id)
 
 void FilesystemWidget::ExtractPartition(const DiscIO::Partition& partition, const QString& out)
 {
-  ExtractDirectory(partition, QStringLiteral(""), out);
+  ExtractDirectory(partition, QStringLiteral(""), out + QStringLiteral("/files"));
   ExtractSystemData(partition, out);
 }
 
-void FilesystemWidget::ExtractSystemData(const DiscIO::Partition& partition, const QString& out)
+bool FilesystemWidget::ExtractSystemData(const DiscIO::Partition& partition, const QString& out)
 {
-  bool success = DiscIO::ExportSystemData(*m_volume, partition, out.toStdString());
-
-  if (success)
-    QMessageBox::information(nullptr, tr("Success"), tr("Successfully extracted system data."));
-  else
-    QMessageBox::critical(nullptr, tr("Error"), tr("Failed to extract system data."));
+  return DiscIO::ExportSystemData(*m_volume, partition, out.toStdString());
 }
 
-void FilesystemWidget::ExtractDirectory(const DiscIO::Partition& partition, const QString path,
+void FilesystemWidget::ExtractDirectory(const DiscIO::Partition& partition, const QString& path,
                                         const QString& out)
 {
   const DiscIO::FileSystem* filesystem = m_volume->GetFileSystem(partition);
@@ -247,6 +285,7 @@ void FilesystemWidget::ExtractDirectory(const DiscIO::Partition& partition, cons
   u32 size = info->GetTotalChildren();
 
   QProgressDialog* dialog = new QProgressDialog(this);
+  dialog->setWindowFlags(dialog->windowFlags() & ~Qt::WindowContextHelpButtonHint);
   dialog->setMinimum(0);
   dialog->setMaximum(size);
   dialog->show();
@@ -291,6 +330,9 @@ void FilesystemWidget::CheckIntegrity(const DiscIO::Partition& partition)
       std::launch::async, [this, partition] { return m_volume->CheckIntegrity(partition); });
 
   dialog->setLabelText(tr("Verifying integrity of partition..."));
+  dialog->setWindowFlags(dialog->windowFlags() & ~Qt::WindowContextHelpButtonHint);
+  dialog->setWindowTitle(tr("Verifying partition"));
+
   dialog->setMinimum(0);
   dialog->setMaximum(0);
   dialog->show();

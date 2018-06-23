@@ -4,12 +4,12 @@
 
 #include "Core/HLE/HLE_Misc.h"
 
+#include "Common/Common.h"
 #include "Common/CommonTypes.h"
-#include "Common/Logging/Log.h"
-#include "Common/MsgHandler.h"
 #include "Core/GeckoCode.h"
 #include "Core/HW/CPU.h"
 #include "Core/Host.h"
+#include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
 
 namespace HLE_Misc
@@ -21,19 +21,11 @@ void UnimplementedFunction()
   NPC = LR;
 }
 
-// If you want a function to panic, you can rename it PanicAlert :p
-// Don't know if this is worth keeping.
-void HLEPanicAlert()
-{
-  ::PanicAlert("HLE: PanicAlert %08x", LR);
-  NPC = LR;
-}
-
 void HBReload()
 {
   // There isn't much we can do. Just stop cleanly.
   CPU::Break();
-  Host_Message(WM_USER_STOP);
+  Host_Message(HostMessageID::WMUserStop);
 }
 
 void GeckoCodeHandlerICacheFlush()

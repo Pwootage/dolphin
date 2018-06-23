@@ -18,9 +18,6 @@ namespace ciface
 {
 namespace Core
 {
-// Forward declarations
-class DeviceQualifier;
-
 //
 // Device
 //
@@ -79,6 +76,7 @@ public:
   void SetId(int id) { m_id = id; }
   virtual std::string GetName() const = 0;
   virtual std::string GetSource() const = 0;
+  std::string GetQualifiedName() const;
   virtual void UpdateInput() {}
   virtual bool IsValid() const { return true; }
   const std::vector<Input*>& Inputs() const { return m_inputs; }
@@ -100,6 +98,7 @@ protected:
     }
 
     std::string GetName() const override { return m_low.GetName() + *m_high.GetName().rbegin(); }
+
   private:
     Input& m_low;
     Input& m_high;

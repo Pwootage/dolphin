@@ -15,8 +15,9 @@ static bool IsDeviceUsable(const std::string& device_path)
   hid_device* handle = hid_open_path(device_path.c_str());
   if (handle == nullptr)
   {
-    ERROR_LOG(WIIMOTE, "Could not connect to Wii Remote at \"%s\". "
-                       "Do you have permission to access the device?",
+    ERROR_LOG(WIIMOTE,
+              "Could not connect to Wii Remote at \"%s\". "
+              "Do you have permission to access the device?",
               device_path.c_str());
     return false;
   }
@@ -38,7 +39,7 @@ namespace WiimoteReal
 WiimoteScannerHidapi::WiimoteScannerHidapi()
 {
   int ret = hid_init();
-  _assert_msg_(WIIMOTE, ret == 0, "Couldn't initialise hidapi.");
+  ASSERT_MSG(WIIMOTE, ret == 0, "Couldn't initialise hidapi.");
 }
 
 WiimoteScannerHidapi::~WiimoteScannerHidapi()
@@ -96,8 +97,9 @@ bool WiimoteHidapi::ConnectInternal()
   m_handle = hid_open_path(m_device_path.c_str());
   if (m_handle == nullptr)
   {
-    ERROR_LOG(WIIMOTE, "Could not connect to Wii Remote at \"%s\". "
-                       "Do you have permission to access the device?",
+    ERROR_LOG(WIIMOTE,
+              "Could not connect to Wii Remote at \"%s\". "
+              "Do you have permission to access the device?",
               m_device_path.c_str());
   }
   return m_handle != nullptr;
@@ -134,7 +136,7 @@ int WiimoteHidapi::IORead(u8* buf)
 
 int WiimoteHidapi::IOWrite(const u8* buf, size_t len)
 {
-  _dbg_assert_(WIIMOTE, buf[0] == (WR_SET_REPORT | BT_OUTPUT));
+  DEBUG_ASSERT(buf[0] == (WR_SET_REPORT | BT_OUTPUT));
   int result = hid_write(m_handle, buf + 1, len - 1);
   if (result == -1)
   {

@@ -2,6 +2,8 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinQt2/Config/ControllersWindow.h"
+
 #include <QApplication>
 #include <QBoxLayout>
 #include <QCheckBox>
@@ -19,6 +21,7 @@
 #include <QVBoxLayout>
 
 #include <map>
+#include <optional>
 
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
@@ -28,12 +31,15 @@
 #include "Core/IOS/IOS.h"
 #include "Core/IOS/USB/Bluetooth/BTReal.h"
 #include "Core/NetPlayProto.h"
+
 #include "DolphinQt2/Config/Mapping/GCPadWiiUConfigDialog.h"
 #include "DolphinQt2/Config/Mapping/MappingWindow.h"
+#include "DolphinQt2/QtUtils/WrapInScrollArea.h"
 #include "DolphinQt2/Settings.h"
-#include "UICommon/UICommon.h"
 
-#include "DolphinQt2/Config/ControllersWindow.h"
+#include "InputCommon/GCAdapter.h"
+
+#include "UICommon/UICommon.h"
 
 static const std::map<SerialInterface::SIDevices, int> s_gc_types = {
     {SerialInterface::SIDEVICE_NONE, 0},         {SerialInterface::SIDEVICE_GC_CONTROLLER, 1},
@@ -41,31 +47,17 @@ static const std::map<SerialInterface::SIDevices, int> s_gc_types = {
     {SerialInterface::SIDEVICE_DANCEMAT, 4},     {SerialInterface::SIDEVICE_GC_TARUKONGA, 5},
     {SerialInterface::SIDEVICE_GC_GBA, 6},       {SerialInterface::SIDEVICE_GC_KEYBOARD, 7}};
 
-static const std::map<int, int> s_wiimote_types = {
-    {WIIMOTE_SRC_NONE, 0}, {WIIMOTE_SRC_EMU, 1}, {WIIMOTE_SRC_REAL, 2}, {WIIMOTE_SRC_HYBRID, 3}};
-
-static int ToGCMenuIndex(const SerialInterface::SIDevices sidevice)
+static std::optional<int> ToGCMenuIndex(const SerialInterface::SIDevices sidevice)
 {
-  return s_gc_types.at(sidevice);
+  auto it = s_gc_types.find(sidevice);
+  return it != s_gc_types.end() ? it->second : std::optional<int>();
 }
 
-static SerialInterface::SIDevices FromGCMenuIndex(const int menudevice)
+static std::optional<SerialInterface::SIDevices> FromGCMenuIndex(const int menudevice)
 {
   auto it = std::find_if(s_gc_types.begin(), s_gc_types.end(),
                          [=](auto pair) { return pair.second == menudevice; });
-  return it->first;
-}
-
-static int ToWiimoteMenuIndex(const int device)
-{
-  return s_wiimote_types.at(device);
-}
-
-static int FromWiimoteMenuIndex(const int menudevice)
-{
-  auto it = std::find_if(s_wiimote_types.begin(), s_wiimote_types.end(),
-                         [=](auto pair) { return pair.second == menudevice; });
-  return it->first;
+  return it != s_gc_types.end() ? it->first : std::optional<SerialInterface::SIDevices>();
 }
 
 ControllersWindow::ControllersWindow(QWidget* parent) : QDialog(parent)
@@ -188,11 +180,8 @@ void ControllersWindow::CreateWiimoteLayout()
     auto* wm_box = m_wiimote_boxes[i] = new QComboBox();
     auto* wm_button = m_wiimote_buttons[i] = new QPushButton(tr("Configure"));
 
-    for (const auto& item :
-         {tr("None"), tr("Emulated Wii Remote"), tr("Real Wii Remote"), tr("Hybrid Wii Remote")})
-    {
+    for (const auto& item : {tr("None"), tr("Emulated Wii Remote"), tr("Real Wii Remote")})
       wm_box->addItem(item);
-    }
 
     int wm_row = m_wiimote_layout->rowCount();
     m_wiimote_layout->addWidget(wm_label, wm_row, 1);
@@ -221,19 +210,20 @@ void ControllersWindow::CreateAdvancedLayout()
 
 void ControllersWindow::CreateMainLayout()
 {
-  m_main_layout = new QVBoxLayout();
-  m_button_box = new QDialogButtonBox(QDialogButtonBox::Ok);
+  auto* layout = new QVBoxLayout();
+  m_button_box = new QDialogButtonBox(QDialogButtonBox::Close);
 
-  m_main_layout->addWidget(m_gc_box);
-  m_main_layout->addWidget(m_wiimote_box);
-  m_main_layout->addWidget(m_advanced_box);
-  m_main_layout->addWidget(m_button_box);
+  layout->addWidget(m_gc_box);
+  layout->addWidget(m_wiimote_box);
+  layout->addWidget(m_advanced_box);
+  layout->addWidget(m_button_box);
 
-  setLayout(m_main_layout);
+  WrapInScrollArea(this, layout);
 }
 
 void ControllersWindow::ConnectWidgets()
 {
+  connect(m_button_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
           [=](Core::State state) { OnEmulationStateChanged(state != Core::State::Uninitialized); });
 
@@ -252,7 +242,6 @@ void ControllersWindow::ConnectWidgets()
           &ControllersWindow::OnBluetoothPassthroughResetPressed);
   connect(m_wiimote_refresh, &QPushButton::clicked, this,
           &ControllersWindow::OnWiimoteRefreshPressed);
-  connect(m_button_box, &QDialogButtonBox::accepted, this, &ControllersWindow::accept);
 
   for (size_t i = 0; i < m_wiimote_groups.size(); i++)
   {
@@ -312,6 +301,8 @@ void ControllersWindow::OnWiimoteTypeChanged(int type)
       return;
     }
   }
+
+  SaveSettings();
 }
 
 void ControllersWindow::OnGCTypeChanged(int type)
@@ -327,6 +318,8 @@ void ControllersWindow::OnGCTypeChanged(int type)
       return;
     }
   }
+
+  SaveSettings();
 }
 
 void ControllersWindow::OnBluetoothPassthroughResetPressed()
@@ -457,9 +450,6 @@ void ControllersWindow::OnWiimoteConfigure()
   case 1:  // Emulated Wii Remote
     type = MappingWindow::Type::MAPPING_WIIMOTE_EMU;
     break;
-  case 3:  // Hybrid Wii Remote
-    type = MappingWindow::Type::MAPPING_WIIMOTE_HYBRID;
-    break;
   default:
     return;
   }
@@ -480,8 +470,10 @@ void ControllersWindow::LoadSettings()
 {
   for (size_t i = 0; i < m_wiimote_groups.size(); i++)
   {
-    m_gc_controller_boxes[i]->setCurrentIndex(ToGCMenuIndex(SConfig::GetInstance().m_SIDevice[i]));
-    m_wiimote_boxes[i]->setCurrentIndex(ToWiimoteMenuIndex(g_wiimote_sources[i]));
+    const std::optional<int> gc_index = ToGCMenuIndex(SConfig::GetInstance().m_SIDevice[i]);
+    if (gc_index)
+      m_gc_controller_boxes[i]->setCurrentIndex(*gc_index);
+    m_wiimote_boxes[i]->setCurrentIndex(g_wiimote_sources[i]);
   }
   m_wiimote_real_balance_board->setChecked(g_wiimote_sources[WIIMOTE_BALANCE_BOARD] ==
                                            WIIMOTE_SRC_REAL);
@@ -512,8 +504,11 @@ void ControllersWindow::SaveSettings()
   for (size_t i = 0; i < m_wiimote_groups.size(); i++)
   {
     const int index = m_wiimote_boxes[i]->currentIndex();
-    g_wiimote_sources[i] = FromWiimoteMenuIndex(index);
+    g_wiimote_sources[i] = index;
     m_wiimote_buttons[i]->setEnabled(index != 0 && index != 2);
+
+    if (Core::IsRunning())
+      WiimoteReal::ChangeWiimoteSource(static_cast<u32>(i), index);
   }
 
   UICommon::SaveWiimoteSources();
@@ -521,8 +516,22 @@ void ControllersWindow::SaveSettings()
   for (size_t i = 0; i < m_gc_groups.size(); i++)
   {
     const int index = m_gc_controller_boxes[i]->currentIndex();
-    SConfig::GetInstance().m_SIDevice[i] = FromGCMenuIndex(index);
+    const std::optional<SerialInterface::SIDevices> si_device = FromGCMenuIndex(index);
+    if (si_device)
+    {
+      SConfig::GetInstance().m_SIDevice[i] = *si_device;
+
+      if (Core::IsRunning())
+        SerialInterface::ChangeDevice(*si_device, static_cast<s32>(i));
+    }
+
     m_gc_buttons[i]->setEnabled(index != 0 && index != 6);
   }
+
+  if (GCAdapter::UseAdapter())
+    GCAdapter::StartScanThread();
+  else
+    GCAdapter::StopScanThread();
+
   SConfig::GetInstance().SaveSettings();
 }

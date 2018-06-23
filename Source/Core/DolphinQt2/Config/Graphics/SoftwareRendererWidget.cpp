@@ -13,10 +13,13 @@
 
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/ConfigManager.h"
+
 #include "DolphinQt2/Config/Graphics/GraphicsBool.h"
 #include "DolphinQt2/Config/Graphics/GraphicsWindow.h"
 #include "DolphinQt2/Settings.h"
+
 #include "UICommon/VideoUtils.h"
+
 #include "VideoCommon/VideoBackendBase.h"
 #include "VideoCommon/VideoConfig.h"
 
@@ -49,9 +52,9 @@ void SoftwareRendererWidget::CreateWidgets()
   auto* overlay_box = new QGroupBox(tr("Overlay Information"));
   auto* overlay_layout = new QGridLayout();
   overlay_box->setLayout(overlay_layout);
-  m_enable_statistics = new GraphicsBool(tr("Various Statistics"), Config::GFX_OVERLAY_STATS);
+  m_show_statistics = new GraphicsBool(tr("Show Statistics"), Config::GFX_OVERLAY_STATS);
 
-  overlay_layout->addWidget(m_enable_statistics);
+  overlay_layout->addWidget(m_show_statistics);
 
   auto* utility_box = new QGroupBox(tr("Utility"));
   auto* utility_layout = new QGridLayout();
@@ -133,10 +136,7 @@ void SoftwareRendererWidget::SaveSettings()
     {
       const auto backend_name = backend->GetName();
       if (backend_name != SConfig::GetInstance().m_strVideoBackend)
-      {
-        SConfig::GetInstance().m_strVideoBackend = backend_name;
         emit BackendChanged(QString::fromStdString(backend_name));
-      }
       break;
     }
   }
@@ -147,21 +147,36 @@ void SoftwareRendererWidget::SaveSettings()
 
 void SoftwareRendererWidget::AddDescriptions()
 {
-  static const char* TR_BACKEND_DESCRIPTION =
+  static const char TR_BACKEND_DESCRIPTION[] =
       QT_TR_NOOP("Selects what graphics API to use internally.\nThe software renderer is extremely "
                  "slow and only useful for debugging, so you'll want to use either Direct3D or "
                  "OpenGL. Different games and different GPUs will behave differently on each "
                  "backend, so for the best emulation experience it's recommended to try both and "
                  "choose the one that's less problematic.\n\nIf unsure, select OpenGL.");
 
-  static const char* TR_SHOW_STATISTICS_DESCRIPTION =
+  static const char TR_SHOW_STATISTICS_DESCRIPTION[] =
       QT_TR_NOOP("Show various rendering statistics.\n\nIf unsure, leave this unchecked.");
 
-  static const char* TR_DUMP_TEXTURES_DESCRIPTION =
+  static const char TR_DUMP_TEXTURES_DESCRIPTION[] =
       QT_TR_NOOP("Dump decoded game textures to User/Dump/Textures/<game_id>/.\n\nIf unsure, leave "
                  "this unchecked.");
 
+  static const char TR_DUMP_OBJECTS_DESCRIPTION[] =
+      QT_TR_NOOP("Dump objects to User/Dump/Objects/.\n\nIf unsure, leave "
+                 "this unchecked.");
+
+  static const char TR_DUMP_TEV_STAGES_DESCRIPTION[] =
+      QT_TR_NOOP("Dump TEV Stages to User/Dump/Objects/.\n\nIf unsure, leave "
+                 "this unchecked.");
+
+  static const char TR_DUMP_TEV_FETCHES_DESCRIPTION[] =
+      QT_TR_NOOP("Dump Texture Fetches to User/Dump/Objects/.\n\nIf unsure, leave "
+                 "this unchecked.");
+
   AddDescription(m_backend_combo, TR_BACKEND_DESCRIPTION);
-  AddDescription(m_enable_statistics, TR_SHOW_STATISTICS_DESCRIPTION);
+  AddDescription(m_show_statistics, TR_SHOW_STATISTICS_DESCRIPTION);
   AddDescription(m_dump_textures, TR_DUMP_TEXTURES_DESCRIPTION);
+  AddDescription(m_dump_objects, TR_DUMP_OBJECTS_DESCRIPTION);
+  AddDescription(m_dump_tev_stages, TR_DUMP_TEV_STAGES_DESCRIPTION);
+  AddDescription(m_dump_tev_fetches, TR_DUMP_TEV_FETCHES_DESCRIPTION);
 }

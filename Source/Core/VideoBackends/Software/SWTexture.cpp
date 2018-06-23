@@ -52,16 +52,12 @@ SWTexture::SWTexture(const TextureConfig& tex_config) : AbstractTexture(tex_conf
   m_data.resize(tex_config.width * tex_config.height * 4);
 }
 
-void SWTexture::Bind(unsigned int stage)
-{
-}
-
 void SWTexture::CopyRectangleFromTexture(const AbstractTexture* src,
                                          const MathUtil::Rectangle<int>& src_rect, u32 src_layer,
                                          u32 src_level, const MathUtil::Rectangle<int>& dst_rect,
                                          u32 dst_layer, u32 dst_level)
 {
-  _assert_(src_level == 0 && src_layer == 0 && dst_layer == 0 && dst_level == 0);
+  ASSERT(src_level == 0 && src_layer == 0 && dst_layer == 0 && dst_level == 0);
   CopyTextureData(src->GetConfig(), static_cast<const SWTexture*>(src)->m_data.data(),
                   src_rect.left, src_rect.top, src_rect.GetWidth(), src_rect.GetHeight(), m_config,
                   m_data.data(), dst_rect.left, dst_rect.top);
@@ -89,6 +85,10 @@ void SWTexture::ScaleRectangleFromTexture(const AbstractTexture* source,
     CopyRegion(source_pixels.data(), srcrect, destination_pixels.data(), dstrect);
     memcpy(GetData(), destination_pixels.data(), destination_pixels.size());
   }
+}
+void SWTexture::ResolveFromTexture(const AbstractTexture* src, const MathUtil::Rectangle<int>& rect,
+                                   u32 layer, u32 level)
+{
 }
 
 void SWTexture::Load(u32 level, u32 width, u32 height, u32 row_length, const u8* buffer,
@@ -121,7 +121,7 @@ void SWStagingTexture::CopyFromTexture(const AbstractTexture* src,
                                        const MathUtil::Rectangle<int>& src_rect, u32 src_layer,
                                        u32 src_level, const MathUtil::Rectangle<int>& dst_rect)
 {
-  _assert_(src_level == 0 && src_layer == 0);
+  ASSERT(src_level == 0 && src_layer == 0);
   CopyTextureData(src->GetConfig(), static_cast<const SWTexture*>(src)->GetData(), src_rect.left,
                   src_rect.top, src_rect.GetWidth(), src_rect.GetHeight(), m_config, m_data.data(),
                   dst_rect.left, dst_rect.top);
@@ -132,7 +132,7 @@ void SWStagingTexture::CopyToTexture(const MathUtil::Rectangle<int>& src_rect, A
                                      const MathUtil::Rectangle<int>& dst_rect, u32 dst_layer,
                                      u32 dst_level)
 {
-  _assert_(dst_level == 0 && dst_layer == 0);
+  ASSERT(dst_level == 0 && dst_layer == 0);
   CopyTextureData(m_config, m_data.data(), src_rect.left, src_rect.top, src_rect.GetWidth(),
                   src_rect.GetHeight(), dst->GetConfig(), static_cast<SWTexture*>(dst)->GetData(),
                   dst_rect.left, dst_rect.top);
@@ -152,4 +152,31 @@ void SWStagingTexture::Flush()
 {
   m_needs_flush = false;
 }
+
+SWFramebuffer::SWFramebuffer(AbstractTextureFormat color_format, AbstractTextureFormat depth_format,
+                             u32 width, u32 height, u32 layers, u32 samples)
+    : AbstractFramebuffer(color_format, depth_format, width, height, layers, samples)
+{
+}
+
+std::unique_ptr<SWFramebuffer> SWFramebuffer::Create(const SWTexture* color_attachment,
+                                                     const SWTexture* depth_attachment)
+{
+  if (!ValidateConfig(color_attachment, depth_attachment))
+    return nullptr;
+
+  const AbstractTextureFormat color_format =
+      color_attachment ? color_attachment->GetFormat() : AbstractTextureFormat::Undefined;
+  const AbstractTextureFormat depth_format =
+      depth_attachment ? depth_attachment->GetFormat() : AbstractTextureFormat::Undefined;
+  const SWTexture* either_attachment = color_attachment ? color_attachment : depth_attachment;
+  const u32 width = either_attachment->GetWidth();
+  const u32 height = either_attachment->GetHeight();
+  const u32 layers = either_attachment->GetLayers();
+  const u32 samples = either_attachment->GetSamples();
+
+  return std::make_unique<SWFramebuffer>(color_format, depth_format, width, height, layers,
+                                         samples);
+}
+
 }  // namespace SW

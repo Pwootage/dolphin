@@ -4,7 +4,6 @@
 #include <mbedtls/sha1.h>
 #include <memory>
 #include <mutex>
-#include <random>
 #include <string>
 
 #if defined(_WIN32)
@@ -16,6 +15,7 @@
 #include "Common/Analytics.h"
 #include "Common/CPUDetect.h"
 #include "Common/CommonTypes.h"
+#include "Common/Random.h"
 #include "Common/StringUtil.h"
 #include "Common/Version.h"
 #include "Core/ConfigManager.h"
@@ -73,9 +73,8 @@ void DolphinAnalytics::ReloadConfig()
 
 void DolphinAnalytics::GenerateNewIdentity()
 {
-  std::random_device rd;
-  u64 id_high = (static_cast<u64>(rd()) << 32) | rd();
-  u64 id_low = (static_cast<u64>(rd()) << 32) | rd();
+  const u64 id_high = Common::Random::GenerateValue<u64>();
+  const u64 id_low = Common::Random::GenerateValue<u64>();
   m_unique_id = StringFromFormat("%016" PRIx64 "%016" PRIx64, id_high, id_low);
 
   // Save the new id in the configuration.
@@ -125,6 +124,9 @@ void DolphinAnalytics::MakeBaseBuilder()
   builder.AddData("version-hash", Common::scm_rev_git_str);
   builder.AddData("version-branch", Common::scm_branch_str);
   builder.AddData("version-dist", Common::scm_distributor_str);
+
+  // Auto-Update information.
+  builder.AddData("update-track", SConfig::GetInstance().m_auto_update_track);
 
   // CPU information.
   builder.AddData("cpu-summary", cpu_info.Summarize());
@@ -178,15 +180,20 @@ void DolphinAnalytics::MakeBaseBuilder()
   m_base_builder = builder;
 }
 
-static const char* GetUbershaderMode(const VideoConfig& video_config)
+static const char* GetShaderCompilationMode(const VideoConfig& video_config)
 {
-  if (video_config.bDisableSpecializedShaders)
-    return "exclusive";
-
-  if (video_config.bBackgroundShaderCompiling)
-    return "hybrid";
-
-  return "disabled";
+  switch (video_config.iShaderCompilationMode)
+  {
+  case ShaderCompilationMode::AsynchronousUberShaders:
+    return "async-ubershaders";
+  case ShaderCompilationMode::AsynchronousSkipRendering:
+    return "async-skip-rendering";
+  case ShaderCompilationMode::SynchronousUberShaders:
+    return "sync-ubershaders";
+  case ShaderCompilationMode::Synchronous:
+  default:
+    return "sync";
+  }
 }
 
 void DolphinAnalytics::MakePerGameBuilder()
@@ -231,7 +238,8 @@ void DolphinAnalytics::MakePerGameBuilder()
   builder.AddData("cfg-gfx-tc-samples", g_Config.iSafeTextureCache_ColorSamples);
   builder.AddData("cfg-gfx-stereo-mode", static_cast<int>(g_Config.stereo_mode));
   builder.AddData("cfg-gfx-per-pixel-lighting", g_Config.bEnablePixelLighting);
-  builder.AddData("cfg-gfx-ubershader-mode", GetUbershaderMode(g_Config));
+  builder.AddData("cfg-gfx-shader-compilation-mode", GetShaderCompilationMode(g_Config));
+  builder.AddData("cfg-gfx-wait-for-shaders", g_Config.bWaitForShadersBeforeStarting);
   builder.AddData("cfg-gfx-fast-depth", g_Config.bFastDepthCalc);
   builder.AddData("cfg-gfx-vertex-rounding", g_Config.UseVertexRounding());
 

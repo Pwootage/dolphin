@@ -24,10 +24,10 @@
 
 #include "Common/Assert.h"
 #include "Common/FileUtil.h"
-#include "Common/SysConf.h"
 #include "Core/Config/SYSCONFSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+#include "Core/SysConf.h"
 #include "DolphinWX/DolphinSlider.h"
 #include "DolphinWX/Frame.h"
 #include "DolphinWX/Main.h"
@@ -44,7 +44,6 @@
 
 // template instantiation
 template class BoolSetting<wxCheckBox>;
-template class BoolSetting<wxRadioButton>;
 
 template <>
 SettingCheckBox::BoolSetting(wxWindow* parent, const wxString& label, const wxString& tooltip,
@@ -57,19 +56,6 @@ SettingCheckBox::BoolSetting(wxWindow* parent, const wxString& label, const wxSt
   if (Config::GetActiveLayerForConfig(m_setting) != Config::LayerType::Base)
     SetFont(GetFont().MakeBold());
   Bind(wxEVT_CHECKBOX, &SettingCheckBox::UpdateValue, this);
-}
-
-template <>
-SettingRadioButton::BoolSetting(wxWindow* parent, const wxString& label, const wxString& tooltip,
-                                const Config::ConfigInfo<bool>& setting, bool reverse, long style)
-    : wxRadioButton(parent, wxID_ANY, label, wxDefaultPosition, wxDefaultSize, style),
-      m_setting(setting), m_reverse(reverse)
-{
-  SetToolTip(tooltip);
-  SetValue(Config::Get(m_setting) ^ m_reverse);
-  if (Config::GetActiveLayerForConfig(m_setting) != Config::LayerType::Base)
-    SetFont(GetFont().MakeBold());
-  Bind(wxEVT_RADIOBUTTON, &SettingRadioButton::UpdateValue, this);
 }
 
 template <>
@@ -252,6 +238,9 @@ static wxString dump_efb_desc = wxTRANSLATE(
     "Dump the contents of EFB copies to User/Dump/Textures/.\n\nIf unsure, leave this unchecked.");
 static wxString dump_xfb_desc = wxTRANSLATE(
     "Dump the contents of XFB copies to User/Dump/Textures/.\n\nIf unsure, leave this unchecked.");
+static wxString disable_vram_copies_desc =
+    wxTRANSLATE("Disables the VRAM copy of the EFB, forcing a round-trip to RAM. Inhibits all "
+                "upscaling.\n\nIf unsure, leave this unchecked.");
 static wxString internal_resolution_frame_dumping_desc = wxTRANSLATE(
     "Create frame dumps and screenshots at the internal resolution of the renderer, rather than "
     "the size of the window it is displayed within. If the aspect ratio is widescreen, the output "
@@ -301,6 +290,11 @@ static wxString true_color_desc =
     wxTRANSLATE("Forces the game to render the RGB color channels in 24-bit, thereby increasing "
                 "quality by reducing color banding.\nIt has no impact on performance and causes "
                 "few graphical issues.\n\n\nIf unsure, leave this checked.");
+static wxString disable_copy_filter_desc =
+    wxTRANSLATE("Disables the blending of adjacent rows when copying the EFB. This is known in "
+                "some games as \"deflickering\" or \"smoothing\". Disabling the filter has no "
+                "effect on performance, but may result in a sharper image, and causes few "
+                "graphical issues.\n\n\nIf unsure, leave this checked.");
 static wxString vertex_rounding_desc =
     wxTRANSLATE("Rounds 2D vertices to whole pixels. Fixes graphical problems in some games at "
                 "higher internal resolutions. This setting has no effect when native internal "
@@ -309,18 +303,33 @@ static wxString gpu_texture_decoding_desc =
     wxTRANSLATE("Enables texture decoding using the GPU instead of the CPU. This may result in "
                 "performance gains in some scenarios, or on systems where the CPU is the "
                 "bottleneck.\n\nIf unsure, leave this unchecked.");
-static wxString ubershader_desc =
-    wxTRANSLATE("Disabled: Ubershaders are never used. Stuttering will occur during shader "
-                "compilation, but GPU demands are low. Recommended for low-end hardware.\n\n"
-                "Hybrid: Ubershaders will be used to prevent stuttering during shader "
-                "compilation, but traditional shaders will be used when they will not cause "
-                "stuttering. Balances performance and smoothness.\n\n"
-                "Exclusive: Ubershaders will always be used. Only recommended for high-end "
-                "systems.");
+static wxString shader_compile_sync_desc =
+    wxTRANSLATE("Ubershaders are never used. Stuttering will occur during shader "
+                "compilation, but GPU demands are low. Recommended for low-end hardware.\n\nIf "
+                "unsure, select this mode.");
+static wxString shader_compile_uber_only_desc = wxTRANSLATE(
+    "Ubershaders will always be used. Provides a near stutter-free experience at the cost of high "
+    "GPU performance requirements. Only recommended for high-end systems.");
+static wxString shader_compile_async_uber_desc =
+    wxTRANSLATE("Ubershaders will be used to prevent stuttering during shader compilation, but "
+                "specialized shaders will be used when they will not cause stuttering. In the best "
+                "case it eliminates shader compilation stuttering while having minimal performance "
+                "impact, but results depend on video driver behavior.");
+static wxString shader_compile_async_skip_desc = wxTRANSLATE(
+    "Prevents shader compilation stuttering by not rendering waiting objects. Can work in "
+    "scenarios where Ubershaders doesn't, at the cost of introducing visual glitches and broken "
+    "effects. Not recommended, only use if the other options give poor results on your system.");
+static wxString shader_compile_before_start_desc =
+    wxTRANSLATE("Waits for all shaders to finish compiling before starting a game. Enabling this "
+                "option may reduce stuttering or hitching for a short time after the game is "
+                "started, at the cost of a longer delay before the game starts. For systems with "
+                "two or fewer cores, it is recommended to enable this option, as a large shader "
+                "queue may reduce frame rates. Otherwise, if unsure, leave this unchecked.");
 
 VideoConfigDiag::VideoConfigDiag(wxWindow* parent, const std::string& title)
-    : wxDialog(parent, wxID_ANY, wxString::Format(_("Dolphin %s Graphics Configuration"),
-                                                  wxGetTranslation(StrToWxStr(title)))),
+    : wxDialog(parent, wxID_ANY,
+               wxString::Format(_("Dolphin %s Graphics Configuration"),
+                                wxGetTranslation(StrToWxStr(title)))),
       vconfig(g_Config)
 {
   // We don't need to load the config if the core is running, since it would have been done
@@ -444,6 +453,30 @@ VideoConfigDiag::VideoConfigDiag(wxWindow* parent, const std::string& title)
         }
       }
 
+      // - shader compilation
+      wxGridBagSizer* const szr_shader_compilation = new wxGridBagSizer(space5, space5);
+      {
+        const std::array<std::pair<wxString, wxString>, 4> modes = {
+            {{_("Synchronous"), wxGetTranslation(shader_compile_sync_desc)},
+             {_("Synchronous (Ubershaders)"), wxGetTranslation(shader_compile_uber_only_desc)},
+             {_("Asynchronous (Ubershaders)"), wxGetTranslation(shader_compile_async_uber_desc)},
+             {_("Asynchronous (Skip Drawing)"), wxGetTranslation(shader_compile_async_skip_desc)}}};
+        for (size_t i = 0; i < modes.size(); i++)
+        {
+          szr_shader_compilation->Add(
+              CreateRadioButton(page_general, modes[i].first, modes[i].second,
+                                Config::GFX_SHADER_COMPILATION_MODE,
+                                static_cast<ShaderCompilationMode>(i)),
+              wxGBPosition(static_cast<int>(i / 2), static_cast<int>(i % 2)), wxDefaultSpan,
+              wxALIGN_CENTER_VERTICAL);
+        }
+        szr_shader_compilation->Add(
+            CreateCheckBox(page_general, _("Compile Shaders Before Starting"),
+                           wxGetTranslation(shader_compile_before_start_desc),
+                           Config::GFX_WAIT_FOR_SHADERS_BEFORE_STARTING),
+            wxGBPosition(2, 0), wxGBSpan(1, 2));
+      }
+
       wxStaticBoxSizer* const group_basic =
           new wxStaticBoxSizer(wxVERTICAL, page_general, _("Basic"));
       group_basic->Add(szr_basic, 1, wxEXPAND | wxLEFT | wxRIGHT, space5);
@@ -459,12 +492,19 @@ VideoConfigDiag::VideoConfigDiag(wxWindow* parent, const std::string& title)
       group_other->Add(szr_other, 1, wxEXPAND | wxLEFT | wxRIGHT, space5);
       group_other->AddSpacer(space5);
 
+      wxStaticBoxSizer* const group_shader_compilation =
+          new wxStaticBoxSizer(wxVERTICAL, page_general, _("Shader Compilation"));
+      group_shader_compilation->Add(szr_shader_compilation, 1, wxEXPAND | wxLEFT | wxRIGHT, space5);
+      group_shader_compilation->AddSpacer(space5);
+
       szr_general->AddSpacer(space5);
       szr_general->Add(group_basic, 0, wxEXPAND | wxLEFT | wxRIGHT, space5);
       szr_general->AddSpacer(space5);
       szr_general->Add(group_display, 0, wxEXPAND | wxLEFT | wxRIGHT, space5);
       szr_general->AddSpacer(space5);
       szr_general->Add(group_other, 0, wxEXPAND | wxLEFT | wxRIGHT, space5);
+      szr_general->AddSpacer(space5);
+      szr_general->Add(group_shader_compilation, 0, wxEXPAND | wxLEFT | wxRIGHT, space5);
     }
 
     szr_general->AddSpacer(space5);
@@ -531,29 +571,6 @@ VideoConfigDiag::VideoConfigDiag(wxWindow* parent, const std::string& title)
       row += 1;
     }
 
-    // ubershaders
-    {
-      const std::array<wxString, 3> mode_choices = {{_("Disabled"), _("Hybrid"), _("Exclusive")}};
-
-      wxChoice* const choice_mode =
-          new wxChoice(page_enh, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-                       static_cast<int>(mode_choices.size()), mode_choices.data());
-      RegisterControl(choice_mode, wxGetTranslation(ubershader_desc));
-      szr_enh->Add(new wxStaticText(page_enh, wxID_ANY, _("Ubershaders:")), wxGBPosition(row, 0),
-                   wxDefaultSpan, wxALIGN_CENTER_VERTICAL);
-      szr_enh->Add(choice_mode, wxGBPosition(row, 1), span2, wxALIGN_CENTER_VERTICAL);
-      row += 1;
-
-      // Determine ubershader mode
-      choice_mode->Bind(wxEVT_CHOICE, &VideoConfigDiag::OnUberShaderModeChanged, this);
-      if (Config::GetBase(Config::GFX_DISABLE_SPECIALIZED_SHADERS))
-        choice_mode->SetSelection(2);
-      else if (Config::GetBase(Config::GFX_BACKGROUND_SHADER_COMPILING))
-        choice_mode->SetSelection(1);
-      else
-        choice_mode->SetSelection(0);
-    }
-
     // postproc shader
     if (vconfig.backend_info.bSupportsPostProcessing)
     {
@@ -582,7 +599,7 @@ VideoConfigDiag::VideoConfigDiag(wxWindow* parent, const std::string& title)
     wxGridSizer* const cb_szr = new wxGridSizer(2, space5, space5);
     cb_szr->Add(CreateCheckBox(page_enh, _("Scaled EFB Copy"),
                                wxGetTranslation(scaled_efb_copy_desc),
-                               Config::GFX_HACK_COPY_EFB_ENABLED));
+                               Config::GFX_HACK_COPY_EFB_SCALED));
     cb_szr->Add(CreateCheckBox(page_enh, _("Per-Pixel Lighting"),
                                wxGetTranslation(pixel_lighting_desc),
                                Config::GFX_ENABLE_PIXEL_LIGHTING));
@@ -595,6 +612,9 @@ VideoConfigDiag::VideoConfigDiag(wxWindow* parent, const std::string& title)
                                Config::GFX_DISABLE_FOG));
     cb_szr->Add(CreateCheckBox(page_enh, _("Force 24-Bit Color"), wxGetTranslation(true_color_desc),
                                Config::GFX_ENHANCE_FORCE_TRUE_COLOR));
+    cb_szr->Add(CreateCheckBox(page_enh, _("Disable Copy Filter"),
+                               wxGetTranslation(disable_copy_filter_desc),
+                               Config::GFX_ENHANCE_DISABLE_COPY_FILTER));
     szr_enh->Add(cb_szr, wxGBPosition(row, 0), wxGBSpan(1, 3));
     row += 1;
 
@@ -853,6 +873,9 @@ VideoConfigDiag::VideoConfigDiag(wxWindow* parent, const std::string& title)
       szr_utility->Add(CreateCheckBox(page_advanced, _("Dump XFB Target"),
                                       wxGetTranslation(dump_xfb_desc),
                                       Config::GFX_DUMP_XFB_TARGET));
+      szr_utility->Add(CreateCheckBox(page_advanced, _("Disable EFB VRAM Copies"),
+                                      wxGetTranslation(disable_vram_copies_desc),
+                                      Config::GFX_HACK_DISABLE_COPY_TO_VRAM));
       szr_utility->Add(CreateCheckBox(page_advanced, _("Free Look"),
                                       wxGetTranslation(free_look_desc), Config::GFX_FREE_LOOK));
 #if defined(HAVE_FFMPEG)
@@ -1112,17 +1135,6 @@ SettingChoice* VideoConfigDiag::CreateChoice(wxWindow* parent,
   return ch;
 }
 
-SettingRadioButton* VideoConfigDiag::CreateRadioButton(wxWindow* parent, const wxString& label,
-                                                       const wxString& description,
-                                                       const Config::ConfigInfo<bool>& setting,
-                                                       bool reverse, long style)
-{
-  SettingRadioButton* const rb =
-      new SettingRadioButton(parent, label, wxString(), setting, reverse, style);
-  RegisterControl(rb, description);
-  return rb;
-}
-
 /* Use this to register descriptions for controls which have NOT been created using the Create*
  * functions from above */
 wxControl* VideoConfigDiag::RegisterControl(wxControl* const control, const wxString& description)
@@ -1222,11 +1234,11 @@ void VideoConfigDiag::PopulatePostProcessingShaders()
 
     if (vconfig.stereo_mode == StereoMode::Anaglyph)
     {
-      Config::SetBaseOrCurrent(Config::GFX_ENHANCE_POST_SHADER, std::string("dubois"));
+      Config::SetBaseOrCurrent(Config::GFX_ENHANCE_POST_SHADER, "dubois");
       choice_ppshader->SetStringSelection(StrToWxStr(vconfig.sPostProcessingShader));
     }
     else
-      Config::SetBaseOrCurrent(Config::GFX_ENHANCE_POST_SHADER, std::string(""));
+      Config::SetBaseOrCurrent(Config::GFX_ENHANCE_POST_SHADER, "");
   }
 
   // Should the configuration button be loaded by default?
@@ -1246,7 +1258,7 @@ void VideoConfigDiag::PopulateAAList()
     if (mode == 1)
     {
       choice_aamode->AppendString(_("None"));
-      _assert_msg_(VIDEO, !supports_ssaa || m_msaa_modes == 0, "SSAA setting won't work correctly");
+      ASSERT_MSG(VIDEO, !supports_ssaa || m_msaa_modes == 0, "SSAA setting won't work correctly");
     }
     else
     {
@@ -1289,14 +1301,4 @@ void VideoConfigDiag::OnAAChanged(wxCommandEvent& ev)
     return;
 
   Config::SetBaseOrCurrent(Config::GFX_MSAA, vconfig.backend_info.AAModes[mode]);
-}
-
-void VideoConfigDiag::OnUberShaderModeChanged(wxCommandEvent& ev)
-{
-  // 0: No ubershaders
-  // 1: Hybrid ubershaders
-  // 2: Only ubershaders
-  int mode = ev.GetInt();
-  Config::SetBaseOrCurrent(Config::GFX_BACKGROUND_SHADER_COMPILING, mode == 1);
-  Config::SetBaseOrCurrent(Config::GFX_DISABLE_SPECIALIZED_SHADERS, mode == 2);
 }

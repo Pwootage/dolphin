@@ -17,8 +17,11 @@
 #include <QVBoxLayout>
 
 #include "AudioCommon/AudioCommon.h"
+#include "AudioCommon/WASAPIStream.h"
+
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
+
 #include "DolphinQt2/Config/SettingsWindow.h"
 #include "DolphinQt2/Settings.h"
 
@@ -85,9 +88,19 @@ void AudioPane::CreateWidgets()
   m_dolby_pro_logic->setToolTip(
       tr("Enables Dolby Pro Logic II emulation using 5.1 surround. Certain backends only."));
 
+  backend_layout->setFormAlignment(Qt::AlignLeft | Qt::AlignTop);
+  backend_layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
   backend_layout->addRow(m_backend_label, m_backend_combo);
   if (m_latency_control_supported)
     backend_layout->addRow(m_latency_label, m_latency_spin);
+
+#ifdef _WIN32
+  m_wasapi_device_label = new QLabel(tr("Device:"));
+  m_wasapi_device_combo = new QComboBox;
+
+  backend_layout->addRow(m_wasapi_device_label, m_wasapi_device_combo);
+#endif
+
   backend_layout->addRow(m_dolby_pro_logic);
 
   auto* stretching_box = new QGroupBox(tr("Audio Stretching Settings"));
@@ -112,13 +125,15 @@ void AudioPane::CreateWidgets()
 
   m_main_layout = new QGridLayout;
 
-  m_main_layout->setColumnStretch(0, 1);
-  m_main_layout->addWidget(dsp_box, 0, 0);
-  m_main_layout->addWidget(volume_box, 0, 1);
-  m_main_layout->addWidget(backend_box, 1, 0, 1, -1);
-  m_main_layout->addWidget(stretching_box, 2, 0, 1, -1);
+  m_main_layout->setRowStretch(0, 0);
 
-  m_main_layout->setContentsMargins(0, 0, 0, 0);
+  dsp_box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+  m_main_layout->addWidget(dsp_box, 0, 0);
+  m_main_layout->addWidget(volume_box, 0, 1, -1, 1);
+  m_main_layout->addWidget(backend_box, 1, 0);
+  m_main_layout->addWidget(stretching_box, 2, 0);
+
   setLayout(m_main_layout);
 }
 
@@ -138,6 +153,12 @@ void AudioPane::ConnectWidgets()
   connect(m_dsp_hle, &QRadioButton::toggled, this, &AudioPane::SaveSettings);
   connect(m_dsp_lle, &QRadioButton::toggled, this, &AudioPane::SaveSettings);
   connect(m_dsp_interpreter, &QRadioButton::toggled, this, &AudioPane::SaveSettings);
+
+#ifdef _WIN32
+  connect(m_wasapi_device_combo,
+          static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this,
+          &AudioPane::SaveSettings);
+#endif
 }
 
 void AudioPane::LoadSettings()
@@ -181,6 +202,18 @@ void AudioPane::LoadSettings()
   m_stretching_buffer_slider->setValue(SConfig::GetInstance().m_audio_stretch_max_latency);
   m_stretching_buffer_slider->setEnabled(m_stretching_enable->isChecked());
   m_stretching_buffer_indicator->setText(tr("%1 ms").arg(m_stretching_buffer_slider->value()));
+
+#ifdef _WIN32
+  if (SConfig::GetInstance().sWASAPIDevice == "default")
+  {
+    m_wasapi_device_combo->setCurrentIndex(0);
+  }
+  else
+  {
+    m_wasapi_device_combo->setCurrentText(
+        QString::fromStdString(SConfig::GetInstance().sWASAPIDevice));
+  }
+#endif
 }
 
 void AudioPane::SaveSettings()
@@ -225,6 +258,15 @@ void AudioPane::SaveSettings()
   m_stretching_buffer_indicator->setText(
       tr("%1 ms").arg(SConfig::GetInstance().m_audio_stretch_max_latency));
 
+#ifdef _WIN32
+  std::string device = "default";
+
+  if (m_wasapi_device_combo->currentIndex() != 0)
+    device = m_wasapi_device_combo->currentText().toStdString();
+
+  SConfig::GetInstance().sWASAPIDevice = device;
+#endif
+
   AudioCommon::UpdateSoundStream();
 }
 
@@ -238,6 +280,22 @@ void AudioPane::OnBackendChanged()
     m_latency_label->setEnabled(AudioCommon::SupportsLatencyControl(backend));
     m_latency_spin->setEnabled(AudioCommon::SupportsLatencyControl(backend));
   }
+
+#ifdef _WIN32
+  bool is_wasapi = backend == BACKEND_WASAPI;
+  m_wasapi_device_label->setHidden(!is_wasapi);
+  m_wasapi_device_combo->setHidden(!is_wasapi);
+
+  if (is_wasapi)
+  {
+    m_wasapi_device_combo->clear();
+    m_wasapi_device_combo->addItem(tr("Default Device"));
+
+    for (const auto device : WASAPIStream::GetAvailableDevices())
+      m_wasapi_device_combo->addItem(QString::fromStdString(device));
+  }
+#endif
+
   m_volume_slider->setEnabled(AudioCommon::SupportsVolumeChanges(backend));
   m_volume_indicator->setEnabled(AudioCommon::SupportsVolumeChanges(backend));
 }
@@ -255,6 +313,10 @@ void AudioPane::OnEmulationStateChanged(bool running)
     m_latency_label->setEnabled(!running);
     m_latency_spin->setEnabled(!running);
   }
+
+#ifdef _WIN32
+  m_wasapi_device_combo->setEnabled(!running);
+#endif
 }
 
 void AudioPane::OnVolumeChanged(int volume)

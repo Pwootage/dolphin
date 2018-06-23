@@ -98,6 +98,7 @@ public:
   const uid_data* GetUidData() const { return &data; }
   const u8* GetUidDataRaw() const { return &values[0]; }
   size_t GetUidDataSize() const { return sizeof(values); }
+
 private:
   union
   {
@@ -178,7 +179,9 @@ union ShaderHostConfig
     u32 backend_reversed_depth_range : 1;
     u32 backend_bitfield : 1;
     u32 backend_dynamic_sampler_indexing : 1;
-    u32 pad : 12;
+    u32 backend_shader_framebuffer_fetch : 1;
+    u32 backend_logic_op : 1;
+    u32 pad : 10;
   };
 
   static ShaderHostConfig GetCurrent();
@@ -186,7 +189,7 @@ union ShaderHostConfig
 
 // Gets the filename of the specified type of cache object (e.g. vertex shader, pipeline).
 std::string GetDiskShaderCacheFileName(APIType api_type, const char* type, bool include_gameid,
-                                       bool include_host_config);
+                                       bool include_host_config, bool include_api = true);
 
 template <class T>
 inline void DefineOutputMember(T& object, APIType api_type, const char* qualifier, const char* type,
@@ -300,6 +303,7 @@ inline const char* GetInterpolationQualifier(bool msaa, bool ssaa,
 #define I_FOGCOLOR "cfogcolor"
 #define I_FOGI "cfogi"
 #define I_FOGF "cfogf"
+#define I_FOGRANGE "cfogrange"
 #define I_ZSLOPE "czslope"
 #define I_EFBSCALE "cefbscale"
 

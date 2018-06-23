@@ -30,7 +30,7 @@ public:
 
     if (audio_backend.size())
       m_values.emplace_back(
-          std::make_tuple(Config::MAIN_DSP_HLE.location, StringFromBool(audio_backend == "HLE")));
+          std::make_tuple(Config::MAIN_DSP_HLE.location, ValueToString(audio_backend == "HLE")));
 
     // Arguments are in the format of <System>.<Section>.<Key>=Value
     for (const auto& arg : args)
@@ -95,7 +95,7 @@ std::unique_ptr<optparse::OptionParser> CreateParser(ParserOptions options)
     parser->add_option("-d", "--debugger")
         .action("store_true")
         .help("Show the debugger pane and additional View menu options");
-    parser->add_option("-l", "--logger").action("store_true").help("Opens the logger");
+    parser->add_option("-l", "--logger").action("store_true").help("Open the logger");
     parser->add_option("-b", "--batch").action("store_true").help("Exit Dolphin with emulation");
     parser->add_option("-c", "--confirm").action("store_true").help("Set Confirm on Stop");
   }

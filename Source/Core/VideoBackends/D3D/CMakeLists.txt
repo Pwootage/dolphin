@@ -1,4 +1,4 @@
-set(SRCS
+add_library(videod3d
   BoundingBox.cpp
   BoundingBox.h
   D3DBase.cpp
@@ -13,6 +13,10 @@ set(SRCS
   D3DTexture.h
   D3DUtil.cpp
   D3DUtil.h
+  DXPipeline.cpp
+  DXPipeline.h
+  DXShader.cpp
+  DXShader.h
   DXTexture.cpp
   DXTexture.h
   FramebufferManager.cpp
@@ -38,10 +42,8 @@ set(SRCS
   VideoBackend.h
 )
 
-set(LIBS
-  videocommon
-  SOIL
+target_link_libraries(videod3d
+PUBLIC
   common
+  videocommon
 )
-
-add_dolphin_library(videod3d "${SRCS}" "${LIBS}")

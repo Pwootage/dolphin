@@ -2,16 +2,19 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinQt2/Config/Mapping/GCPadEmu.h"
+
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 
-#include "DolphinQt2/Config/Mapping/GCPadEmu.h"
-#include "InputCommon/InputConfig.h"
-
 #include "Core/HW/GCPad.h"
 #include "Core/HW/GCPadEmu.h"
+
+#include "InputCommon/ControllerEmu/Setting/BooleanSetting.h"
+#include "InputCommon/ControllerEmu/Setting/NumericSetting.h"
+#include "InputCommon/InputConfig.h"
 
 GCPadEmu::GCPadEmu(MappingWindow* window) : MappingWidget(window)
 {
@@ -22,12 +25,6 @@ void GCPadEmu::CreateMainLayout()
 {
   m_main_layout = new QHBoxLayout();
 
-  auto* hbox_layout = new QVBoxLayout();
-
-  hbox_layout->addWidget(
-      CreateGroupBox(tr("Triggers"), Pad::GetGroup(GetPort(), PadGroup::Triggers)));
-  hbox_layout->addWidget(CreateGroupBox(tr("Rumble"), Pad::GetGroup(GetPort(), PadGroup::Rumble)));
-
   m_main_layout->addWidget(
       CreateGroupBox(tr("Buttons"), Pad::GetGroup(GetPort(), PadGroup::Buttons)));
   m_main_layout->addWidget(
@@ -35,7 +32,17 @@ void GCPadEmu::CreateMainLayout()
   m_main_layout->addWidget(
       CreateGroupBox(tr("C Stick"), Pad::GetGroup(GetPort(), PadGroup::CStick)));
   m_main_layout->addWidget(CreateGroupBox(tr("D-Pad"), Pad::GetGroup(GetPort(), PadGroup::DPad)));
-  m_main_layout->addItem(hbox_layout);
+
+  auto* hbox_layout = new QVBoxLayout();
+
+  m_main_layout->addLayout(hbox_layout);
+
+  hbox_layout->addWidget(
+      CreateGroupBox(tr("Triggers"), Pad::GetGroup(GetPort(), PadGroup::Triggers)));
+  hbox_layout->addWidget(CreateGroupBox(tr("Rumble"), Pad::GetGroup(GetPort(), PadGroup::Rumble)));
+
+  hbox_layout->addWidget(
+      CreateGroupBox(tr("Options"), Pad::GetGroup(GetPort(), PadGroup::Options)));
 
   setLayout(m_main_layout);
 }

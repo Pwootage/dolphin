@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include <array>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -27,16 +28,22 @@
 #include "Common/Flag.h"
 #include "Common/MathUtil.h"
 #include "VideoCommon/AVIDump.h"
+#include "VideoCommon/AsyncShaderCompiler.h"
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/FPSCounter.h"
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/VideoCommon.h"
 
-class AbstractRawTexture;
+class AbstractFramebuffer;
+class AbstractPipeline;
+class AbstractShader;
 class AbstractTexture;
 class AbstractStagingTexture;
 class PostProcessingShaderImplementation;
 struct TextureConfig;
+struct ComputePipelineConfig;
+struct AbstractPipelineConfig;
+enum class ShaderStage;
 enum class EFBAccessType;
 enum class StagingTextureType;
 
@@ -46,9 +53,18 @@ struct EfbPokeData
   u32 data;
 };
 
-// TODO: Move these out of here.
 extern int frameCount;
-extern int OSDChoice;
+
+enum class OSDMessage : s32
+{
+  IRChanged = 1,
+  ARToggled = 2,
+  EFBCopyToggled = 3,
+  FogToggled = 4,
+  SpeedChanged = 5,
+  XFBChanged = 6,
+  VolumeChanged = 7,
+};
 
 // Renderer really isn't a very good name for this class - it's more like "Misc".
 // The long term goal is to get rid of this class and replace it with others that make
@@ -59,23 +75,18 @@ public:
   Renderer(int backbuffer_width, int backbuffer_height);
   virtual ~Renderer();
 
-  enum PixelPerfQuery
-  {
-    PP_ZCOMP_INPUT_ZCOMPLOC,
-    PP_ZCOMP_OUTPUT_ZCOMPLOC,
-    PP_ZCOMP_INPUT,
-    PP_ZCOMP_OUTPUT,
-    PP_BLEND_INPUT,
-    PP_EFB_COPY_CLOCKS
-  };
+  using ClearColor = std::array<float, 4>;
 
-  virtual void SetBlendingState(const BlendingState& state) {}
-  virtual void SetScissorRect(const EFBRectangle& rc) {}
-  virtual void SetRasterizationState(const RasterizationState& state) {}
-  virtual void SetDepthState(const DepthState& state) {}
+  virtual void SetPipeline(const AbstractPipeline* pipeline) {}
+  virtual void SetScissorRect(const MathUtil::Rectangle<int>& rc) {}
+  virtual void SetTexture(u32 index, const AbstractTexture* texture) {}
   virtual void SetSamplerState(u32 index, const SamplerState& state) {}
+  virtual void UnbindTexture(const AbstractTexture* texture) {}
   virtual void SetInterlacingMode() {}
-  virtual void SetViewport() {}
+  virtual void SetViewport(float x, float y, float width, float height, float near_depth,
+                           float far_depth)
+  {
+  }
   virtual void SetFullscreen(bool enable_fullscreen) {}
   virtual bool IsFullscreen() const { return false; }
   virtual void ApplyState() {}
@@ -85,7 +96,29 @@ public:
   virtual std::unique_ptr<AbstractTexture> CreateTexture(const TextureConfig& config) = 0;
   virtual std::unique_ptr<AbstractStagingTexture>
   CreateStagingTexture(StagingTextureType type, const TextureConfig& config) = 0;
+  virtual std::unique_ptr<AbstractFramebuffer>
+  CreateFramebuffer(const AbstractTexture* color_attachment,
+                    const AbstractTexture* depth_attachment) = 0;
 
+  // Framebuffer operations.
+  virtual void SetFramebuffer(const AbstractFramebuffer* framebuffer) {}
+  virtual void SetAndDiscardFramebuffer(const AbstractFramebuffer* framebuffer) {}
+  virtual void SetAndClearFramebuffer(const AbstractFramebuffer* framebuffer,
+                                      const ClearColor& color_value = {}, float depth_value = 0.0f)
+  {
+  }
+
+  // Shader modules/objects.
+  virtual std::unique_ptr<AbstractShader>
+  CreateShaderFromSource(ShaderStage stage, const char* source, size_t length) = 0;
+  virtual std::unique_ptr<AbstractShader>
+  CreateShaderFromBinary(ShaderStage stage, const void* data, size_t length) = 0;
+  virtual std::unique_ptr<AbstractPipeline>
+  CreatePipeline(const AbstractPipelineConfig& config) = 0;
+
+  const AbstractFramebuffer* GetCurrentFramebuffer() const { return m_current_framebuffer; }
+  u32 GetCurrentFramebufferWidth() const { return m_current_framebuffer_width; }
+  u32 GetCurrentFramebufferHeight() const { return m_current_framebuffer_height; }
   // Ideal internal resolution - multiple of the native EFB resolution
   int GetTargetWidth() const { return m_target_width; }
   int GetTargetHeight() const { return m_target_height; }
@@ -141,18 +174,32 @@ public:
   // Finish up the current frame, print some stats
   void Swap(u32 xfbAddr, u32 fbWidth, u32 fbStride, u32 fbHeight, const EFBRectangle& rc,
             u64 ticks);
-  virtual void SwapImpl(AbstractTexture* texture, const EFBRectangle& rc, u64 ticks,
-                        float Gamma = 1.0f) = 0;
+  virtual void SwapImpl(AbstractTexture* texture, const EFBRectangle& rc, u64 ticks) = 0;
 
   PEControl::PixelFormat GetPrevPixelFormat() const { return m_prev_efb_format; }
   void StorePixelFormat(PEControl::PixelFormat new_format) { m_prev_efb_format = new_format; }
   PostProcessingShaderImplementation* GetPostProcessor() const { return m_post_processor.get(); }
   // Final surface changing
   // This is called when the surface is resized (WX) or the window changes (Android).
-  virtual void ChangeSurface(void* new_surface_handle) {}
+  void ChangeSurface(void* new_surface_handle);
+  void ResizeSurface(int new_width, int new_height);
   bool UseVertexDepthRange() const;
 
-  void ShutdownFrameDumping();
+  virtual std::unique_ptr<VideoCommon::AsyncShaderCompiler> CreateAsyncShaderCompiler();
+
+  virtual void Shutdown();
+
+  // Drawing utility shaders.
+  virtual void DrawUtilityPipeline(const void* uniforms, u32 uniforms_size, const void* vertices,
+                                   u32 vertex_stride, u32 num_vertices)
+  {
+  }
+  virtual void DispatchComputeShader(const AbstractShader* shader, const void* uniforms,
+                                     u32 uniforms_size, u32 groups_x, u32 groups_y, u32 groups_z)
+  {
+  }
+
+  void ShowOSDMessage(OSDMessage message);
 
 protected:
   std::tuple<int, int> CalculateTargetScale(int x, int y) const;
@@ -162,6 +209,11 @@ protected:
 
   void CheckFifoRecording();
   void RecordVideoMemory();
+
+  // TODO: Remove the width/height parameters once we make the EFB an abstract framebuffer.
+  const AbstractFramebuffer* m_current_framebuffer = nullptr;
+  u32 m_current_framebuffer_width = 1;
+  u32 m_current_framebuffer_height = 1;
 
   Common::Flag m_screenshot_request;
   Common::Event m_screenshot_completed;
@@ -173,23 +225,25 @@ protected:
   int m_target_width = 0;
   int m_target_height = 0;
 
-  // TODO: Add functionality to reinit all the render targets when the window is resized.
+  // Backbuffer (window) size and render area
   int m_backbuffer_width = 0;
   int m_backbuffer_height = 0;
+  int m_new_backbuffer_width = 0;
+  int m_new_backbuffer_height = 0;
   TargetRectangle m_target_rectangle = {};
 
   FPSCounter m_fps_counter;
 
   std::unique_ptr<PostProcessingShaderImplementation> m_post_processor;
 
-  static const float GX_MAX_DEPTH;
-
   void* m_surface_handle = nullptr;
   void* m_new_surface_handle = nullptr;
-  Common::Flag m_surface_needs_change;
-  Common::Event m_surface_changed;
+  Common::Flag m_surface_changed;
+  Common::Flag m_surface_resized;
+  std::mutex m_swap_mutex;
 
   u32 m_last_host_config_bits = 0;
+  u32 m_last_efb_multisamples = 1;
 
 private:
   void RunFrameDumps();
@@ -234,6 +288,9 @@ private:
   u32 m_last_xfb_width = MAX_XFB_WIDTH;
   u32 m_last_xfb_height = MAX_XFB_HEIGHT;
 
+  s32 m_osd_message = 0;
+  s32 m_osd_time = 0;
+
   // NOTE: The methods below are called on the framedumping thread.
   bool StartFrameDumpToAVI(const FrameDumpConfig& config);
   void DumpFrameToAVI(const FrameDumpConfig& config);
@@ -241,6 +298,7 @@ private:
   std::string GetFrameDumpNextImageFileName() const;
   bool StartFrameDumpToImage(const FrameDumpConfig& config);
   void DumpFrameToImage(const FrameDumpConfig& config);
+  void ShutdownFrameDumping();
 
   bool IsFrameDumping();
 

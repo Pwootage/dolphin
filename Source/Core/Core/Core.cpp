@@ -75,13 +75,6 @@
 #include "VideoCommon/RenderBase.h"
 #include "VideoCommon/VideoBackendBase.h"
 
-// Android and OSX haven't implemented the keyword yet.
-#if defined __ANDROID__ || defined __APPLE__
-#include <pthread.h>
-#else  // Everything besides OSX and Android
-#define ThreadLocalStorage thread_local
-#endif
-
 namespace Core
 {
 static bool s_wants_determinism;
@@ -96,7 +89,6 @@ static bool s_hardware_initialized = false;
 static bool s_is_started = false;
 static Common::Flag s_is_booting;
 static void* s_window_handle = nullptr;
-static std::string s_state_filename;
 static std::thread s_emu_thread;
 static StateChangedCallbackFunc s_on_state_changed_callback;
 
@@ -113,16 +105,7 @@ struct HostJob
 static std::mutex s_host_jobs_lock;
 static std::queue<HostJob> s_host_jobs_queue;
 
-#ifdef ThreadLocalStorage
-static ThreadLocalStorage bool tls_is_cpu_thread = false;
-#else
-static pthread_key_t s_tls_is_cpu_key;
-static pthread_once_t s_cpu_key_is_init = PTHREAD_ONCE_INIT;
-static void InitIsCPUKey()
-{
-  pthread_key_create(&s_tls_is_cpu_key, nullptr);
-}
-#endif
+static thread_local bool tls_is_cpu_thread = false;
 
 static void EmuThread(std::unique_ptr<BootParameters> boot);
 
@@ -134,15 +117,6 @@ bool GetIsThrottlerTempDisabled()
 void SetIsThrottlerTempDisabled(bool disable)
 {
   s_is_throttler_temp_disabled = disable;
-}
-
-std::string GetStateFileName()
-{
-  return s_state_filename;
-}
-void SetStateFileName(const std::string& val)
-{
-  s_state_filename = val;
 }
 
 void FrameUpdateOnCPUThread()
@@ -193,14 +167,7 @@ bool IsRunningInCurrentThread()
 
 bool IsCPUThread()
 {
-#ifdef ThreadLocalStorage
   return tls_is_cpu_thread;
-#else
-  // Use pthread implementation for Android and Mac
-  // Make sure that s_tls_is_cpu_key is initialized
-  pthread_once(&s_cpu_key_is_init, InitIsCPUKey);
-  return pthread_getspecific(s_tls_is_cpu_key);
-#endif
 }
 
 bool IsGPUThread()
@@ -251,8 +218,20 @@ bool Init(std::unique_ptr<BootParameters> boot)
 
   // Start the emu thread
   s_emu_thread = std::thread(EmuThread, std::move(boot));
-
   return true;
+}
+
+static void ResetRumble()
+{
+#if defined(__LIBUSB__)
+  GCAdapter::ResetRumble();
+#endif
+#if defined(CIFACE_USE_XINPUT) || defined(CIFACE_USE_DINPUT)
+  if (!Pad::IsInitialized())
+    return;
+  for (int i = 0; i < 4; ++i)
+    Pad::ResetRumble(i);
+#endif
 }
 
 // Called from GUI thread
@@ -285,9 +264,8 @@ void Stop()  // - Hammertime!
 
     g_video_backend->Video_ExitLoop();
   }
-#if defined(__LIBUSB__)
-  GCAdapter::ResetRumble();
-#endif
+
+  ResetRumble();
 
 #ifdef USE_MEMORYWATCHER
   MemoryWatcher::Shutdown();
@@ -296,54 +274,37 @@ void Stop()  // - Hammertime!
 
 void DeclareAsCPUThread()
 {
-#ifdef ThreadLocalStorage
   tls_is_cpu_thread = true;
-#else
-  // Use pthread implementation for Android and Mac
-  // Make sure that s_tls_is_cpu_key is initialized
-  pthread_once(&s_cpu_key_is_init, InitIsCPUKey);
-  pthread_setspecific(s_tls_is_cpu_key, (void*)true);
-#endif
 }
 
 void UndeclareAsCPUThread()
 {
-#ifdef ThreadLocalStorage
   tls_is_cpu_thread = false;
-#else
-  // Use pthread implementation for Android and Mac
-  // Make sure that s_tls_is_cpu_key is initialized
-  pthread_once(&s_cpu_key_is_init, InitIsCPUKey);
-  pthread_setspecific(s_tls_is_cpu_key, (void*)false);
-#endif
 }
 
 // For the CPU Thread only.
 static void CPUSetInitialExecutionState()
 {
-  QueueHostJob([] {
+  // The CPU starts in stepping state, and will wait until a new state is set before executing.
+  // SetState must be called on the host thread, so we defer it for later.
+  QueueHostJob([]() {
     SetState(SConfig::GetInstance().bBootToPause ? State::Paused : State::Running);
+    Host_UpdateDisasmDialog();
     Host_UpdateMainFrame();
+    Host_Message(HostMessageID::WMUserCreate);
   });
 }
 
 // Create the CPU thread, which is a CPU + Video thread in Single Core mode.
-static void CpuThread()
+static void CpuThread(const std::optional<std::string>& savestate_path, bool delete_savestate)
 {
   DeclareAsCPUThread();
 
   const SConfig& _CoreParameter = SConfig::GetInstance();
-
   if (_CoreParameter.bCPUThread)
-  {
     Common::SetCurrentThreadName("CPU thread");
-  }
   else
-  {
     Common::SetCurrentThreadName("CPU-GPU thread");
-    g_video_backend->Video_Prepare();
-    Host_Message(WM_USER_CREATE);
-  }
 
   // This needs to be delayed until after the video backend is ready.
   DolphinAnalytics::Instance()->ReportGameStart();
@@ -351,16 +312,15 @@ static void CpuThread()
   if (_CoreParameter.bFastmem)
     EMM::InstallExceptionHandler();  // Let's run under memory watch
 
-  if (!s_state_filename.empty())
+#ifdef USE_MEMORYWATCHER
+  MemoryWatcher::Init();
+#endif
+
+  if (savestate_path)
   {
-    // Needs to PauseAndLock the Core
-    // NOTE: EmuThread should have left us in State::Stepping so nothing will happen
-    //   until after the job is serviced.
-    QueueHostJob([] {
-      // Recheck in case Movie cleared it since.
-      if (!s_state_filename.empty())
-        ::State::LoadAs(s_state_filename);
-    });
+    ::State::LoadAs(*savestate_path);
+    if (delete_savestate)
+      File::Delete(*savestate_path);
   }
 
   s_is_started = true;
@@ -383,37 +343,25 @@ static void CpuThread()
   }
 #endif
 
-#ifdef USE_MEMORYWATCHER
-  MemoryWatcher::Init();
-#endif
-
   // Enter CPU run loop. When we leave it - we are done.
   CPU::Run();
 
   s_is_started = false;
 
-  if (!_CoreParameter.bCPUThread)
-    g_video_backend->Video_CleanupShared();
-
   if (_CoreParameter.bFastmem)
     EMM::UninstallExceptionHandler();
 }
 
-static void FifoPlayerThread()
+static void FifoPlayerThread(const std::optional<std::string>& savestate_path,
+                             bool delete_savestate)
 {
   DeclareAsCPUThread();
-  const SConfig& _CoreParameter = SConfig::GetInstance();
 
+  const SConfig& _CoreParameter = SConfig::GetInstance();
   if (_CoreParameter.bCPUThread)
-  {
     Common::SetCurrentThreadName("FIFO player thread");
-  }
   else
-  {
-    g_video_backend->Video_Prepare();
-    Host_Message(WM_USER_CREATE);
     Common::SetCurrentThreadName("FIFO-GPU thread");
-  }
 
   // Enter CPU run loop. When we leave it - we are done.
   if (auto cpu_core = FifoPlayer::GetInstance().GetCPUCore())
@@ -426,26 +374,15 @@ static void FifoPlayerThread()
 
     s_is_started = false;
     PowerPC::InjectExternalCPUCore(nullptr);
+    FifoPlayer::GetInstance().Close();
   }
-  FifoPlayer::GetInstance().Close();
-
-  // If we did not enter the CPU Run Loop above then run a fake one instead.
-  // We need to be IsRunningAndStarted() for DolphinWX to stop us.
-  if (CPU::GetState() != CPU::State::PowerDown)
+  else
   {
-    s_is_started = true;
-    Host_Message(WM_USER_STOP);
-    while (CPU::GetState() != CPU::State::PowerDown)
-    {
-      if (!_CoreParameter.bCPUThread)
-        g_video_backend->PeekMessages();
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    s_is_started = false;
+    // FIFO log does not contain any frames, cannot continue.
+    PanicAlert("FIFO file is invalid, cannot playback.");
+    FifoPlayer::GetInstance().Close();
+    return;
   }
-
-  if (!_CoreParameter.bCPUThread)
-    g_video_backend->Video_CleanupShared();
 }
 
 // Initialize and create emulation thread
@@ -468,9 +405,6 @@ static void EmuThread(std::unique_ptr<BootParameters> boot)
 
     INFO_LOG(CONSOLE, "Stop\t\t---- Shutdown complete ----");
   }};
-
-  // Prevent the UI from getting stuck whenever an error occurs.
-  Common::ScopeGuard stop_message_guard{[] { Host_Message(WM_USER_STOP); }};
 
   Common::SetCurrentThreadName("Emuthread - Starting");
 
@@ -507,8 +441,6 @@ static void EmuThread(std::unique_ptr<BootParameters> boot)
   }
   Common::ScopeGuard video_guard{[] { g_video_backend->Shutdown(); }};
 
-  OSD::AddMessage("Dolphin " + g_video_backend->GetName() + " Video Backend.", 5000);
-
   if (cpu_info.HTT)
     SConfig::GetInstance().bDSPThread = cpu_info.num_cores > 4;
   else
@@ -535,15 +467,21 @@ static void EmuThread(std::unique_ptr<BootParameters> boot)
     Keyboard::LoadConfig();
   }
 
+  const std::optional<std::string> savestate_path = boot->savestate_path;
+  const bool delete_savestate = boot->delete_savestate;
+
   // Load and Init Wiimotes - only if we are booting in Wii mode
   if (core_parameter.bWii && !SConfig::GetInstance().m_bt_passthrough_enabled)
   {
     if (init_controllers)
-      Wiimote::Initialize(!s_state_filename.empty() ?
-                              Wiimote::InitializeMode::DO_WAIT_FOR_WIIMOTES :
-                              Wiimote::InitializeMode::DO_NOT_WAIT_FOR_WIIMOTES);
+    {
+      Wiimote::Initialize(savestate_path ? Wiimote::InitializeMode::DO_WAIT_FOR_WIIMOTES :
+                                           Wiimote::InitializeMode::DO_NOT_WAIT_FOR_WIIMOTES);
+    }
     else
+    {
       Wiimote::LoadConfig();
+    }
   }
 
   Common::ScopeGuard controller_guard{[init_controllers] {
@@ -570,7 +508,7 @@ static void EmuThread(std::unique_ptr<BootParameters> boot)
   PowerPC::SetMode(PowerPC::CoreMode::Interpreter);
 
   // Determine the CPU thread function
-  void (*cpuThreadFunc)();
+  void (*cpuThreadFunc)(const std::optional<std::string>& savestate_path, bool delete_savestate);
   if (std::holds_alternative<BootParameters::DFF>(boot->parameters))
     cpuThreadFunc = FifoPlayerThread;
   else
@@ -579,14 +517,20 @@ static void EmuThread(std::unique_ptr<BootParameters> boot)
   if (!CBoot::BootUp(std::move(boot)))
     return;
 
+  // Initialise Wii filesystem contents.
+  // This is done here after Boot and not in HW to ensure that we operate
+  // with the correct title context since save copying requires title directories to exist.
+  Common::ScopeGuard wiifs_guard{Core::CleanUpWiiFileSystemContents};
+  if (SConfig::GetInstance().bWii)
+    Core::InitializeWiiFileSystemContents();
+  else
+    wiifs_guard.Dismiss();
+
   // This adds the SyncGPU handler to CoreTiming, so now CoreTiming::Advance might block.
   Fifo::Prepare();
 
-  // Thread is no longer acting as CPU Thread
-  UndeclareAsCPUThread();
-
   // Setup our core, but can't use dynarec if we are compare server
-  if (core_parameter.iCPUCore != PowerPC::CORE_INTERPRETER &&
+  if (core_parameter.cpu_core != PowerPC::CPUCore::Interpreter &&
       (!core_parameter.bRunCompareServer || core_parameter.bRunCompareClient))
   {
     PowerPC::SetMode(PowerPC::CoreMode::JIT);
@@ -596,68 +540,38 @@ static void EmuThread(std::unique_ptr<BootParameters> boot)
     PowerPC::SetMode(PowerPC::CoreMode::Interpreter);
   }
 
-  // Update the window again because all stuff is initialized
-  Host_UpdateDisasmDialog();
-  Host_UpdateMainFrame();
-
   // ENTER THE VIDEO THREAD LOOP
   if (core_parameter.bCPUThread)
   {
     // This thread, after creating the EmuWindow, spawns a CPU
     // thread, and then takes over and becomes the video thread
     Common::SetCurrentThreadName("Video thread");
+    UndeclareAsCPUThread();
 
-    g_video_backend->Video_Prepare();
-    Host_Message(WM_USER_CREATE);
-
-    // Spawn the CPU thread
-    s_cpu_thread = std::thread(cpuThreadFunc);
+    // Spawn the CPU thread. The CPU thread will signal the event that boot is complete.
+    s_cpu_thread = std::thread(cpuThreadFunc, savestate_path, delete_savestate);
 
     // become the GPU thread
     Fifo::RunGpuLoop();
 
     // We have now exited the Video Loop
     INFO_LOG(CONSOLE, "%s", StopMessage(false, "Video Loop Ended").c_str());
+
+    // Join with the CPU thread.
+    s_cpu_thread.join();
+    INFO_LOG(CONSOLE, "%s", StopMessage(true, "CPU thread stopped.").c_str());
   }
   else  // SingleCore mode
   {
-    // The spawned CPU Thread also does the graphics.
-    // The EmuThread is thus an idle thread, which sleeps while
-    // waiting for the program to terminate. Without this extra
-    // thread, the video backend window hangs in single core mode
-    // because no one is pumping messages.
-    Common::SetCurrentThreadName("Emuthread - Idle");
-
-    // Spawn the CPU+GPU thread
-    s_cpu_thread = std::thread(cpuThreadFunc);
-
-    while (CPU::GetState() != CPU::State::PowerDown)
-    {
-      g_video_backend->PeekMessages();
-      Common::SleepCurrentThread(20);
-    }
+    // Become the CPU thread
+    cpuThreadFunc(savestate_path, delete_savestate);
   }
-
-  INFO_LOG(CONSOLE, "%s", StopMessage(true, "Stopping Emu thread ...").c_str());
-
-  // Wait for s_cpu_thread to exit
-  INFO_LOG(CONSOLE, "%s", StopMessage(true, "Stopping CPU-GPU thread ...").c_str());
 
 #ifdef USE_GDBSTUB
   INFO_LOG(CONSOLE, "%s", StopMessage(true, "Stopping GDB ...").c_str());
   gdb_deinit();
   INFO_LOG(CONSOLE, "%s", StopMessage(true, "GDB stopped.").c_str());
 #endif
-
-  s_cpu_thread.join();
-
-  INFO_LOG(CONSOLE, "%s", StopMessage(true, "CPU thread stopped.").c_str());
-
-  if (core_parameter.bCPUThread)
-    g_video_backend->Video_CleanupShared();
-
-  // If we shut down normally, the stop message does not need to be triggered.
-  stop_message_guard.Dismiss();
 }
 
 // Set or get the running state
@@ -675,9 +589,7 @@ void SetState(State state)
     //   stopped (including the CPU).
     CPU::EnableStepping(true);  // Break
     Wiimote::Pause();
-#if defined(__LIBUSB__)
-    GCAdapter::ResetRumble();
-#endif
+    ResetRumble();
     break;
   case State::Running:
     CPU::EnableStepping(false);
@@ -699,7 +611,7 @@ State GetState()
 
   if (s_hardware_initialized)
   {
-    if (CPU::IsStepping())
+    if (CPU::IsStepping() || s_frame_step)
       return State::Paused;
 
     return State::Running;
@@ -796,9 +708,7 @@ static bool PauseAndLock(bool do_lock, bool unpause_on_unlock)
   // (s_efbAccessRequested).
   Fifo::PauseAndLock(do_lock, false);
 
-#if defined(__LIBUSB__)
-  GCAdapter::ResetRumble();
-#endif
+  ResetRumble();
 
   // CPU is unlocked last because CPU::PauseAndLock contains the synchronization
   // mechanism that prevents CPU::Break from racing.
@@ -993,10 +903,6 @@ void UpdateWantDeterminism(bool initial)
       // We need to clear the cache because some parts of the JIT depend on want_determinism,
       // e.g. use of FMA.
       JitInterface::ClearCache();
-
-      // Don't call InitializeWiiRoot during boot, because IOS already does it.
-      if (!initial)
-        Core::InitializeWiiRoot(s_wants_determinism);
     });
   }
 }
@@ -1014,7 +920,7 @@ void QueueHostJob(std::function<void()> job, bool run_during_stop)
   }
   // If the the queue was empty then kick the Host to come and get this job.
   if (send_message)
-    Host_Message(WM_USER_JOB_DISPATCH);
+    Host_Message(HostMessageID::WMUserJobDispatch);
 }
 
 void HostDispatchJobs()

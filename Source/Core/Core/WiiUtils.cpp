@@ -29,13 +29,14 @@
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
 #include "Common/Swap.h"
-#include "Common/SysConf.h"
 #include "Core/CommonTitles.h"
 #include "Core/ConfigManager.h"
 #include "Core/IOS/Device.h"
 #include "Core/IOS/ES/ES.h"
 #include "Core/IOS/ES/Formats.h"
+#include "Core/IOS/FS/FileSystem.h"
 #include "Core/IOS/IOS.h"
+#include "Core/SysConf.h"
 #include "DiscIO/DiscExtractor.h"
 #include "DiscIO/Enums.h"
 #include "DiscIO/Filesystem.h"
@@ -136,7 +137,7 @@ bool InstallWAD(IOS::HLE::Kernel& ios, const DiscIO::WiiWAD& wad, InstallType in
   }
 
   // Delete a previous temporary title, if it exists.
-  SysConf sysconf{Common::FROM_SESSION_ROOT};
+  SysConf sysconf{ios.GetFS()};
   SysConf::Entry* tid_entry = sysconf.GetOrAddEntry("IPL.TID", SysConf::Entry::Type::LongLong);
   if (const u64 previous_temporary_title_id = Common::swap64(tid_entry->GetData<u64>(0)))
     ios.GetES()->DeleteTitleContent(previous_temporary_title_id);
@@ -158,6 +159,27 @@ bool InstallWAD(const std::string& wad_path)
 {
   IOS::HLE::Kernel ios;
   return InstallWAD(ios, DiscIO::WiiWAD{wad_path}, InstallType::Permanent);
+}
+
+bool UninstallTitle(u64 title_id)
+{
+  IOS::HLE::Kernel ios;
+  return ios.GetES()->DeleteTitleContent(title_id) == IOS::HLE::IPC_SUCCESS;
+}
+
+bool IsTitleInstalled(u64 title_id)
+{
+  IOS::HLE::Kernel ios;
+  const auto entries = ios.GetFS()->ReadDirectory(0, 0, Common::GetTitleContentPath(title_id));
+
+  if (!entries)
+    return false;
+
+  // Since this isn't IOS and we only need a simple way to figure out if a title is installed,
+  // we make the (reasonable) assumption that having more than just the TMD in the content
+  // directory means that the title is installed.
+  return std::any_of(entries->begin(), entries->end(),
+                     [](const std::string& file) { return file != "title.tmd"; });
 }
 
 // Common functionality for system updaters.
@@ -186,12 +208,11 @@ std::string SystemUpdater::GetDeviceRegion()
   if (tmd.IsValid())
   {
     const DiscIO::Region region = tmd.GetRegion();
-    static const std::map<DiscIO::Region, std::string> regions = {
-        {DiscIO::Region::NTSC_J, "JPN"},
-        {DiscIO::Region::NTSC_U, "USA"},
-        {DiscIO::Region::PAL, "EUR"},
-        {DiscIO::Region::NTSC_K, "KOR"},
-        {DiscIO::Region::UNKNOWN_REGION, "EUR"}};
+    static const std::map<DiscIO::Region, std::string> regions = {{DiscIO::Region::NTSC_J, "JPN"},
+                                                                  {DiscIO::Region::NTSC_U, "USA"},
+                                                                  {DiscIO::Region::PAL, "EUR"},
+                                                                  {DiscIO::Region::NTSC_K, "KOR"},
+                                                                  {DiscIO::Region::Unknown, "EUR"}};
     return regions.at(region);
   }
   return "";
@@ -318,16 +339,16 @@ OnlineSystemUpdater::Response OnlineSystemUpdater::GetSystemTitles()
   // Construct the request by loading the template first, then updating some fields.
   pugi::xml_document doc;
   pugi::xml_parse_result result = doc.load_string(GET_SYSTEM_TITLES_REQUEST_PAYLOAD);
-  _assert_(result);
+  ASSERT(result);
 
   // Nintendo does not really care about the device ID or verify that we *are* that device,
   // as long as it is a valid Wii device ID.
   const std::string device_id = GetDeviceId();
-  _assert_(doc.select_node("//DeviceId").node().text().set(device_id.c_str()));
+  ASSERT(doc.select_node("//DeviceId").node().text().set(device_id.c_str()));
 
   // Write the correct device region.
   const std::string region = m_requested_region.empty() ? GetDeviceRegion() : m_requested_region;
-  _assert_(doc.select_node("//RegionId").node().text().set(region.c_str()));
+  ASSERT(doc.select_node("//RegionId").node().text().set(region.c_str()));
 
   std::ostringstream stream;
   doc.save(stream);
@@ -554,8 +575,8 @@ class DiscSystemUpdater final : public SystemUpdater
 {
 public:
   DiscSystemUpdater(UpdateCallback update_callback, const std::string& image_path)
-      : m_update_callback{std::move(update_callback)},
-        m_volume{DiscIO::CreateVolumeFromFilename(image_path)}
+      : m_update_callback{std::move(update_callback)}, m_volume{DiscIO::CreateVolumeFromFilename(
+                                                           image_path)}
   {
   }
   UpdateResult DoDiscUpdate();

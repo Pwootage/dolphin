@@ -16,24 +16,12 @@
 #include "Common/ChunkFile.h"
 #include "Common/Event.h"
 #include "Common/Flag.h"
-#include "DolphinWX/ISOFile.h"
+#include "UICommon/GameFileCache.h"
 
-class wxEmuStateTip : public wxTipWindow
+namespace UICommon
 {
-public:
-  wxEmuStateTip(wxWindow* parent, const wxString& text, wxEmuStateTip** windowPtr)
-      : wxTipWindow(parent, text, 70, (wxTipWindow**)windowPtr)
-  {
-    Bind(wxEVT_KEY_DOWN, &wxEmuStateTip::OnKeyDown, this);
-  }
-
-  // wxTipWindow doesn't correctly handle KeyEvents and crashes... we must overload that.
-  void OnKeyDown(wxKeyEvent& event)
-  {
-    event.StopPropagation();
-    Close();
-  }
-};
+class GameFile;
+}
 
 wxDECLARE_EVENT(DOLPHIN_EVT_REFRESH_GAMELIST, wxCommandEvent);
 wxDECLARE_EVENT(DOLPHIN_EVT_RESCAN_GAMELIST, wxCommandEvent);
@@ -46,8 +34,9 @@ public:
   ~GameListCtrl();
 
   void BrowseForDirectory();
-  const GameListItem* GetISO(size_t index) const;
-  const GameListItem* GetSelectedISO() const;
+  const UICommon::GameFile* GetISO(size_t index) const;
+  const std::string& GetShownName(size_t index) const;
+  const UICommon::GameFile* GetSelectedISO() const;
 
   static bool IsHidingItems();
 
@@ -63,7 +52,6 @@ public:
     COLUMN_ID,
     COLUMN_COUNTRY,
     COLUMN_SIZE,
-    COLUMN_EMULATION_STATE,
     NUMBER_OF_COLUMN
   };
 
@@ -80,16 +68,13 @@ private:
   void SetColors();
   void RefreshList();
   void RescanList();
-  void DoState(PointerWrap* p, u32 size = 0);
-  bool SyncCacheFile(bool write);
-  std::vector<const GameListItem*> GetAllSelectedISOs() const;
+  std::vector<const UICommon::GameFile*> GetAllSelectedISOs() const;
 
   // events
   void OnRefreshGameList(wxCommandEvent& event);
   void OnRescanGameList(wxCommandEvent& event);
   void OnLeftClick(wxMouseEvent& event);
   void OnRightClick(wxMouseEvent& event);
-  void OnMouseMotion(wxMouseEvent& event);
   void OnColumnClick(wxListEvent& event);
   void OnColBeginDrag(wxListEvent& event);
   void OnKeyPress(wxListEvent& event);
@@ -121,25 +106,22 @@ private:
     std::vector<int> flag;
     std::vector<int> platform;
     std::vector<int> utility_banner;
-    std::vector<int> emu_state;
   } m_image_indexes;
 
-  // Actual backing GameListItems are maintained in a background thread and cached to file
-  std::list<std::shared_ptr<GameListItem>> m_cached_files;
-  // Locks the list, not the contents
+  // Actual backing GameFiles are maintained in a background thread and cached to file
+  UICommon::GameFileCache m_cache;
+  // Locks the cache object, not the shared_ptr<GameFile>s obtained from it
   std::mutex m_cache_mutex;
-  Core::TitleDatabase m_title_database;
-  std::mutex m_title_database_mutex;
   std::thread m_scan_thread;
   Common::Event m_scan_trigger;
   Common::Flag m_scan_exiting;
   // UI thread's view into the cache
-  std::vector<std::shared_ptr<GameListItem>> m_shown_files;
+  std::vector<std::shared_ptr<const UICommon::GameFile>> m_shown_files;
+  std::vector<std::string> m_shown_names;
 
   int m_last_column;
   int m_last_sort;
   wxSize m_lastpos;
-  wxEmuStateTip* m_tooltip;
 
   std::vector<ColumnInfo> m_columns;
 };

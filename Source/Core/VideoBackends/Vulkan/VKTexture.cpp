@@ -42,9 +42,10 @@ std::unique_ptr<VKTexture> VKTexture::Create(const TextureConfig& tex_config)
 
   // Allocate texture object
   VkFormat vk_format = Util::GetVkFormatForHostTextureFormat(tex_config.format);
-  auto texture = Texture2D::Create(tex_config.width, tex_config.height, tex_config.levels,
-                                   tex_config.layers, vk_format, VK_SAMPLE_COUNT_1_BIT,
-                                   VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_TILING_OPTIMAL, usage);
+  auto texture =
+      Texture2D::Create(tex_config.width, tex_config.height, tex_config.levels, tex_config.layers,
+                        vk_format, static_cast<VkSampleCountFlagBits>(tex_config.samples),
+                        VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_TILING_OPTIMAL, usage);
 
   if (!texture)
   {
@@ -56,11 +57,14 @@ std::unique_ptr<VKTexture> VKTexture::Create(const TextureConfig& tex_config)
   if (tex_config.rendertarget)
   {
     VkImageView framebuffer_attachments[] = {texture->GetView()};
+    VkRenderPass render_pass =
+        g_object_cache->GetRenderPass(texture->GetFormat(), VK_FORMAT_UNDEFINED, tex_config.samples,
+                                      VK_ATTACHMENT_LOAD_OP_DONT_CARE);
     VkFramebufferCreateInfo framebuffer_info = {
         VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         nullptr,
         0,
-        TextureCache::GetInstance()->GetTextureCopyRenderPass(),
+        render_pass,
         static_cast<u32>(ArraySize(framebuffer_attachments)),
         framebuffer_attachments,
         texture->GetWidth(),
@@ -75,14 +79,29 @@ std::unique_ptr<VKTexture> VKTexture::Create(const TextureConfig& tex_config)
       return nullptr;
     }
 
-    // Clear render targets before use to prevent reading uninitialized memory.
-    VkClearColorValue clear_value = {{0.0f, 0.0f, 0.0f, 1.0f}};
-    VkImageSubresourceRange clear_range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, tex_config.levels, 0,
-                                           tex_config.layers};
-    texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentInitCommandBuffer(),
-                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    vkCmdClearColorImage(g_command_buffer_mgr->GetCurrentInitCommandBuffer(), texture->GetImage(),
-                         texture->GetLayout(), &clear_value, 1, &clear_range);
+    if (!IsDepthFormat(tex_config.format))
+    {
+      // Clear render targets before use to prevent reading uninitialized memory.
+      VkClearColorValue clear_value = {{0.0f, 0.0f, 0.0f, 1.0f}};
+      VkImageSubresourceRange clear_range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, tex_config.levels, 0,
+                                             tex_config.layers};
+      texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentInitCommandBuffer(),
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      vkCmdClearColorImage(g_command_buffer_mgr->GetCurrentInitCommandBuffer(), texture->GetImage(),
+                           texture->GetLayout(), &clear_value, 1, &clear_range);
+    }
+    else
+    {
+      // Clear render targets before use to prevent reading uninitialized memory.
+      VkClearDepthStencilValue clear_value = {0.0f, 0};
+      VkImageSubresourceRange clear_range = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, tex_config.levels, 0,
+                                             tex_config.layers};
+      texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentInitCommandBuffer(),
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      vkCmdClearDepthStencilImage(g_command_buffer_mgr->GetCurrentInitCommandBuffer(),
+                                  texture->GetImage(), texture->GetLayout(), &clear_value, 1,
+                                  &clear_range);
+    }
   }
 
   return std::unique_ptr<VKTexture>(new VKTexture(tex_config, std::move(texture), framebuffer));
@@ -91,7 +110,7 @@ std::unique_ptr<VKTexture> VKTexture::Create(const TextureConfig& tex_config)
 VKTexture::~VKTexture()
 {
   // Texture is automatically cleaned up, however, we don't want to leave it bound.
-  StateTracker::GetInstance()->UnbindTexture(m_texture->GetView());
+  g_renderer->UnbindTexture(this);
   if (m_framebuffer != VK_NULL_HANDLE)
     g_command_buffer_mgr->DeferFramebufferDestruction(m_framebuffer);
 }
@@ -105,14 +124,6 @@ VkFramebuffer VKTexture::GetFramebuffer() const
   return m_framebuffer;
 }
 
-void VKTexture::Bind(unsigned int stage)
-{
-  // Texture should always be in SHADER_READ_ONLY layout prior to use.
-  // This is so we don't need to transition during render passes.
-  _assert_(m_texture->GetLayout() == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-  StateTracker::GetInstance()->SetTexture(stage, m_texture->GetView());
-}
-
 void VKTexture::CopyRectangleFromTexture(const AbstractTexture* src,
                                          const MathUtil::Rectangle<int>& src_rect, u32 src_layer,
                                          u32 src_level, const MathUtil::Rectangle<int>& dst_rect,
@@ -120,13 +131,15 @@ void VKTexture::CopyRectangleFromTexture(const AbstractTexture* src,
 {
   Texture2D* src_texture = static_cast<const VKTexture*>(src)->GetRawTexIdentifier();
 
-  _assert_msg_(VIDEO, static_cast<u32>(src_rect.GetWidth()) <= src_texture->GetWidth() &&
-                          static_cast<u32>(src_rect.GetHeight()) <= src_texture->GetHeight(),
-               "Source rect is too large for CopyRectangleFromTexture");
+  ASSERT_MSG(VIDEO,
+             static_cast<u32>(src_rect.GetWidth()) <= src_texture->GetWidth() &&
+                 static_cast<u32>(src_rect.GetHeight()) <= src_texture->GetHeight(),
+             "Source rect is too large for CopyRectangleFromTexture");
 
-  _assert_msg_(VIDEO, static_cast<u32>(dst_rect.GetWidth()) <= m_config.width &&
-                          static_cast<u32>(dst_rect.GetHeight()) <= m_config.height,
-               "Dest rect is too large for CopyRectangleFromTexture");
+  ASSERT_MSG(VIDEO,
+             static_cast<u32>(dst_rect.GetWidth()) <= m_config.width &&
+                 static_cast<u32>(dst_rect.GetHeight()) <= m_config.height,
+             "Dest rect is too large for CopyRectangleFromTexture");
 
   VkImageCopy image_copy = {
       {VK_IMAGE_ASPECT_COLOR_BIT, src_level, src_layer, src_texture->GetLayers()},
@@ -165,8 +178,8 @@ void VKTexture::ScaleRectangleFromTexture(const AbstractTexture* source,
   StateTracker::GetInstance()->SetPendingRebind();
 
   // Can't render to a non-rendertarget (no framebuffer).
-  _assert_msg_(VIDEO, m_config.rendertarget,
-               "Destination texture for partial copy is not a rendertarget");
+  ASSERT_MSG(VIDEO, m_config.rendertarget,
+             "Destination texture for partial copy is not a rendertarget");
 
   // Render pass expects dst_texture to be in COLOR_ATTACHMENT_OPTIMAL state.
   // src_texture should already be in SHADER_READ_ONLY state, but transition in case (XFB).
@@ -175,9 +188,10 @@ void VKTexture::ScaleRectangleFromTexture(const AbstractTexture* source,
   m_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
                                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
+  VkRenderPass render_pass = g_object_cache->GetRenderPass(
+      m_texture->GetFormat(), VK_FORMAT_UNDEFINED, 1, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
   UtilityShaderDraw draw(g_command_buffer_mgr->GetCurrentCommandBuffer(),
-                         g_object_cache->GetPipelineLayout(PIPELINE_LAYOUT_STANDARD),
-                         TextureCache::GetInstance()->GetTextureCopyRenderPass(),
+                         g_object_cache->GetPipelineLayout(PIPELINE_LAYOUT_STANDARD), render_pass,
                          g_shader_cache->GetPassthroughVertexShader(),
                          g_shader_cache->GetPassthroughGeometryShader(),
                          TextureCache::GetInstance()->GetCopyShader());
@@ -196,6 +210,41 @@ void VKTexture::ScaleRectangleFromTexture(const AbstractTexture* source,
   // Ensure both textures remain in the SHADER_READ_ONLY layout so they can be bound.
   src_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  m_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
+                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+void VKTexture::ResolveFromTexture(const AbstractTexture* src, const MathUtil::Rectangle<int>& rect,
+                                   u32 layer, u32 level)
+{
+  const VKTexture* srcentry = static_cast<const VKTexture*>(src);
+  DEBUG_ASSERT(m_config.samples == 1 && m_config.width == srcentry->m_config.width &&
+               m_config.height == srcentry->m_config.height && srcentry->m_config.samples > 1);
+  DEBUG_ASSERT(rect.left + rect.GetWidth() <= static_cast<int>(srcentry->m_config.width) &&
+               rect.top + rect.GetHeight() <= static_cast<int>(srcentry->m_config.height));
+
+  // Resolving is considered to be a transfer operation.
+  StateTracker::GetInstance()->EndRenderPass();
+  VkImageLayout old_src_layout = srcentry->m_texture->GetLayout();
+  srcentry->m_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
+                                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+  m_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
+                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  VkImageResolve resolve = {
+      {VK_IMAGE_ASPECT_COLOR_BIT, level, layer, 1},                               // srcSubresource
+      {rect.left, rect.top, 0},                                                   // srcOffset
+      {VK_IMAGE_ASPECT_COLOR_BIT, level, layer, 1},                               // dstSubresource
+      {rect.left, rect.top, 0},                                                   // dstOffset
+      {static_cast<u32>(rect.GetWidth()), static_cast<u32>(rect.GetHeight()), 1}  // extent
+  };
+  vkCmdResolveImage(g_command_buffer_mgr->GetCurrentCommandBuffer(),
+                    srcentry->m_texture->GetImage(), srcentry->m_texture->GetLayout(),
+                    m_texture->GetImage(), m_texture->GetLayout(), 1, &resolve);
+
+  // Restore old source texture layout. Destination is assumed to be bound as a shader resource.
+  srcentry->m_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
+                                          old_src_layout);
   m_texture->TransitionToLayout(g_command_buffer_mgr->GetCurrentCommandBuffer(),
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
@@ -358,13 +407,13 @@ void VKStagingTexture::CopyFromTexture(const AbstractTexture* src,
                                        const MathUtil::Rectangle<int>& src_rect, u32 src_layer,
                                        u32 src_level, const MathUtil::Rectangle<int>& dst_rect)
 {
-  _assert_(m_type == StagingTextureType::Readback);
-  _assert_(src_rect.GetWidth() == dst_rect.GetWidth() &&
-           src_rect.GetHeight() == dst_rect.GetHeight());
-  _assert_(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= src->GetConfig().width &&
-           src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= src->GetConfig().height);
-  _assert_(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= m_config.width &&
-           dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= m_config.height);
+  ASSERT(m_type == StagingTextureType::Readback);
+  ASSERT(src_rect.GetWidth() == dst_rect.GetWidth() &&
+         src_rect.GetHeight() == dst_rect.GetHeight());
+  ASSERT(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= src->GetConfig().width &&
+         src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= src->GetConfig().height);
+  ASSERT(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= m_config.width &&
+         dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= m_config.height);
 
   Texture2D* src_tex = static_cast<const VKTexture*>(src)->GetRawTexIdentifier();
   CopyFromTexture(src_tex, src_rect, src_layer, src_level, dst_rect);
@@ -409,7 +458,7 @@ void VKStagingTexture::CopyFromTexture(Texture2D* src, const MathUtil::Rectangle
   m_needs_flush = true;
   g_command_buffer_mgr->AddFencePointCallback(this,
                                               [this](VkCommandBuffer buf, VkFence fence) {
-                                                _assert_(m_needs_flush);
+                                                ASSERT(m_needs_flush);
                                                 m_flush_fence = fence;
                                               },
                                               [this](VkFence fence) {
@@ -424,13 +473,13 @@ void VKStagingTexture::CopyToTexture(const MathUtil::Rectangle<int>& src_rect, A
                                      const MathUtil::Rectangle<int>& dst_rect, u32 dst_layer,
                                      u32 dst_level)
 {
-  _assert_(m_type == StagingTextureType::Upload);
-  _assert_(src_rect.GetWidth() == dst_rect.GetWidth() &&
-           src_rect.GetHeight() == dst_rect.GetHeight());
-  _assert_(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= m_config.width &&
-           src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= m_config.height);
-  _assert_(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= dst->GetConfig().width &&
-           dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= dst->GetConfig().height);
+  ASSERT(m_type == StagingTextureType::Upload);
+  ASSERT(src_rect.GetWidth() == dst_rect.GetWidth() &&
+         src_rect.GetHeight() == dst_rect.GetHeight());
+  ASSERT(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= m_config.width &&
+         src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= m_config.height);
+  ASSERT(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= dst->GetConfig().width &&
+         dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= dst->GetConfig().height);
 
   if (m_needs_flush)
   {
@@ -469,7 +518,7 @@ void VKStagingTexture::CopyToTexture(const MathUtil::Rectangle<int>& src_rect, A
   m_needs_flush = true;
   g_command_buffer_mgr->AddFencePointCallback(this,
                                               [this](VkCommandBuffer buf, VkFence fence) {
-                                                _assert_(m_needs_flush);
+                                                ASSERT(m_needs_flush);
                                                 m_flush_fence = fence;
                                               },
                                               [this](VkFence fence) {
@@ -502,6 +551,7 @@ void VKStagingTexture::Flush()
   {
     // WaitForFence should fire the callback.
     g_command_buffer_mgr->WaitForFence(m_flush_fence);
+    m_flush_fence = VK_NULL_HANDLE;
   }
   else
   {
@@ -514,6 +564,120 @@ void VKStagingTexture::Flush()
   // For readback textures, invalidate the CPU cache as there is new data there.
   if (m_type == StagingTextureType::Readback)
     m_staging_buffer->InvalidateCPUCache();
+}
+
+VKFramebuffer::VKFramebuffer(const VKTexture* color_attachment, const VKTexture* depth_attachment,
+                             u32 width, u32 height, u32 layers, u32 samples, VkFramebuffer fb,
+                             VkRenderPass load_render_pass, VkRenderPass discard_render_pass,
+                             VkRenderPass clear_render_pass)
+    : AbstractFramebuffer(
+          color_attachment ? color_attachment->GetFormat() : AbstractTextureFormat::Undefined,
+          depth_attachment ? depth_attachment->GetFormat() : AbstractTextureFormat::Undefined,
+          width, height, layers, samples),
+      m_color_attachment(color_attachment), m_depth_attachment(depth_attachment), m_fb(fb),
+      m_load_render_pass(load_render_pass), m_discard_render_pass(discard_render_pass),
+      m_clear_render_pass(clear_render_pass)
+{
+}
+
+VKFramebuffer::~VKFramebuffer()
+{
+  g_command_buffer_mgr->DeferFramebufferDestruction(m_fb);
+}
+
+std::unique_ptr<VKFramebuffer> VKFramebuffer::Create(const VKTexture* color_attachment,
+                                                     const VKTexture* depth_attachment)
+{
+  if (!ValidateConfig(color_attachment, depth_attachment))
+    return nullptr;
+
+  const VkFormat vk_color_format =
+      color_attachment ? color_attachment->GetRawTexIdentifier()->GetFormat() : VK_FORMAT_UNDEFINED;
+  const VkFormat vk_depth_format =
+      depth_attachment ? depth_attachment->GetRawTexIdentifier()->GetFormat() : VK_FORMAT_UNDEFINED;
+  const VKTexture* either_attachment = color_attachment ? color_attachment : depth_attachment;
+  const u32 width = either_attachment->GetWidth();
+  const u32 height = either_attachment->GetHeight();
+  const u32 layers = either_attachment->GetLayers();
+  const u32 samples = either_attachment->GetSamples();
+
+  std::array<VkImageView, 2> attachment_views{};
+  u32 num_attachments = 0;
+
+  if (color_attachment)
+    attachment_views[num_attachments++] = color_attachment->GetRawTexIdentifier()->GetView();
+
+  if (depth_attachment)
+    attachment_views[num_attachments++] = depth_attachment->GetRawTexIdentifier()->GetView();
+
+  VkRenderPass load_render_pass = g_object_cache->GetRenderPass(
+      vk_color_format, vk_depth_format, samples, VK_ATTACHMENT_LOAD_OP_LOAD);
+  VkRenderPass discard_render_pass = g_object_cache->GetRenderPass(
+      vk_color_format, vk_depth_format, samples, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+  VkRenderPass clear_render_pass = g_object_cache->GetRenderPass(
+      vk_color_format, vk_depth_format, samples, VK_ATTACHMENT_LOAD_OP_CLEAR);
+  if (load_render_pass == VK_NULL_HANDLE || discard_render_pass == VK_NULL_HANDLE ||
+      clear_render_pass == VK_NULL_HANDLE)
+  {
+    return nullptr;
+  }
+
+  VkFramebufferCreateInfo framebuffer_info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                                              nullptr,
+                                              0,
+                                              load_render_pass,
+                                              num_attachments,
+                                              attachment_views.data(),
+                                              width,
+                                              height,
+                                              layers};
+
+  VkFramebuffer fb;
+  VkResult res =
+      vkCreateFramebuffer(g_vulkan_context->GetDevice(), &framebuffer_info, nullptr, &fb);
+  if (res != VK_SUCCESS)
+  {
+    LOG_VULKAN_ERROR(res, "vkCreateFramebuffer failed: ");
+    return nullptr;
+  }
+
+  return std::make_unique<VKFramebuffer>(color_attachment, depth_attachment, width, height, layers,
+                                         samples, fb, load_render_pass, discard_render_pass,
+                                         clear_render_pass);
+}
+
+void VKFramebuffer::TransitionForRender() const
+{
+  if (m_color_attachment)
+  {
+    m_color_attachment->GetRawTexIdentifier()->TransitionToLayout(
+        g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  }
+
+  if (m_depth_attachment)
+  {
+    m_depth_attachment->GetRawTexIdentifier()->TransitionToLayout(
+        g_command_buffer_mgr->GetCurrentCommandBuffer(),
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+  }
+}
+
+void VKFramebuffer::TransitionForSample() const
+{
+  if (StateTracker::GetInstance()->GetFramebuffer() == m_fb)
+    StateTracker::GetInstance()->EndRenderPass();
+
+  if (m_color_attachment)
+  {
+    m_color_attachment->GetRawTexIdentifier()->TransitionToLayout(
+        g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  }
+
+  if (m_depth_attachment)
+  {
+    m_depth_attachment->GetRawTexIdentifier()->TransitionToLayout(
+        g_command_buffer_mgr->GetCurrentCommandBuffer(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  }
 }
 
 }  // namespace Vulkan

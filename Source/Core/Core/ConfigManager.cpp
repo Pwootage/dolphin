@@ -23,6 +23,7 @@
 #include "Common/MsgHandler.h"
 #include "Common/NandPaths.h"
 #include "Common/StringUtil.h"
+#include "Common/scmrev.h"
 
 #include "Core/Analytics.h"
 #include "Core/Boot/Boot.h"
@@ -90,26 +91,12 @@ void SConfig::SaveSettings()
   SaveNetworkSettings(ini);
   SaveBluetoothPassthroughSettings(ini);
   SaveUSBPassthroughSettings(ini);
+  SaveAutoUpdateSettings(ini);
 
   ini.Save(File::GetUserPath(F_DOLPHINCONFIG_IDX));
 
   Config::Save();
 }
-
-namespace
-{
-void CreateDumpPath(const std::string& path)
-{
-  if (path.empty())
-    return;
-  File::SetUserPath(D_DUMP_IDX, path + '/');
-  File::CreateFullPath(File::GetUserPath(D_DUMPAUDIO_IDX));
-  File::CreateFullPath(File::GetUserPath(D_DUMPDSP_IDX));
-  File::CreateFullPath(File::GetUserPath(D_DUMPSSL_IDX));
-  File::CreateFullPath(File::GetUserPath(D_DUMPFRAMES_IDX));
-  File::CreateFullPath(File::GetUserPath(D_DUMPTEXTURES_IDX));
-}
-}  // namespace
 
 void SConfig::SaveGeneralSettings(IniFile& ini)
 {
@@ -136,11 +123,7 @@ void SConfig::SaveGeneralSettings(IniFile& ini)
   }
 
   general->Set("RecursiveISOPaths", m_RecursiveISOFolder);
-  general->Set("NANDRootPath", m_NANDPath);
-  general->Set("DumpPath", m_DumpPath);
-  CreateDumpPath(m_DumpPath);
   general->Set("WirelessMac", m_WirelessMac);
-  general->Set("WiiSDCardPath", m_strWiiSDCardPath);
 
 #ifdef USE_GDBSTUB
 #ifndef _WIN32
@@ -170,10 +153,10 @@ void SConfig::SaveInterfaceSettings(IniFile& ini)
   interface->Set("ExtendedFPSInfo", m_InterfaceExtendedFPSInfo);
   interface->Set("ShowActiveTitle", m_show_active_title);
   interface->Set("UseBuiltinTitleDatabase", m_use_builtin_title_database);
-  interface->Set("ShowDevelopmentWarning", m_show_development_warning);
   interface->Set("ThemeName", theme_name);
   interface->Set("PauseOnFocusLost", m_PauseOnFocusLost);
   interface->Set("DisableTooltips", m_DisableTooltips);
+  interface->Set("DebugModeEnabled", bEnableDebugging);
 }
 
 void SConfig::SaveDisplaySettings(IniFile& ini)
@@ -227,7 +210,6 @@ void SConfig::SaveGameListSettings(IniFile& ini)
   gamelist->Set("ColumnID", m_showIDColumn);
   gamelist->Set("ColumnRegion", m_showRegionColumn);
   gamelist->Set("ColumnSize", m_showSizeColumn);
-  gamelist->Set("ColumnState", m_showStateColumn);
 }
 
 void SConfig::SaveCoreSettings(IniFile& ini)
@@ -236,7 +218,7 @@ void SConfig::SaveCoreSettings(IniFile& ini)
 
   core->Set("SkipIPL", bHLE_BS2);
   core->Set("TimingVariance", iTimingVariance);
-  core->Set("CPUCore", iCPUCore);
+  core->Set("CPUCore", cpu_core);
   core->Set("Fastmem", bFastmem);
   core->Set("CPUThread", bCPUThread);
   core->Set("DSPHLE", bDSPHLE);
@@ -310,6 +292,10 @@ void SConfig::SaveDSPSettings(IniFile& ini)
   dsp->Set("Backend", sBackend);
   dsp->Set("Volume", m_Volume);
   dsp->Set("CaptureLog", m_DSPCaptureLog);
+
+#ifdef _WIN32
+  dsp->Set("WASAPIDevice", sWASAPIDevice);
+#endif
 }
 
 void SConfig::SaveInputSettings(IniFile& ini)
@@ -370,6 +356,14 @@ void SConfig::SaveUSBPassthroughSettings(IniFile& ini)
   section->Set("Devices", devices_string);
 }
 
+void SConfig::SaveAutoUpdateSettings(IniFile& ini)
+{
+  IniFile::Section* section = ini.GetOrCreateSection("AutoUpdate");
+
+  section->Set("UpdateTrack", m_auto_update_track);
+  section->Set("HashOverride", m_auto_update_hash_override);
+}
+
 void SConfig::LoadSettings()
 {
   Config::Load();
@@ -391,6 +385,7 @@ void SConfig::LoadSettings()
   LoadAnalyticsSettings(ini);
   LoadBluetoothPassthroughSettings(ini);
   LoadUSBPassthroughSettings(ini);
+  LoadAutoUpdateSettings(ini);
 }
 
 void SConfig::LoadGeneralSettings(IniFile& ini)
@@ -420,13 +415,7 @@ void SConfig::LoadGeneralSettings(IniFile& ini)
   }
 
   general->Get("RecursiveISOPaths", &m_RecursiveISOFolder, false);
-  general->Get("NANDRootPath", &m_NANDPath);
-  File::SetUserPath(D_WIIROOT_IDX, m_NANDPath);
-  general->Get("DumpPath", &m_DumpPath);
-  CreateDumpPath(m_DumpPath);
   general->Get("WirelessMac", &m_WirelessMac);
-  general->Get("WiiSDCardPath", &m_strWiiSDCardPath, File::GetUserPath(F_WIISDCARD_IDX));
-  File::SetUserPath(F_WIISDCARD_IDX, m_strWiiSDCardPath);
 }
 
 void SConfig::LoadInterfaceSettings(IniFile& ini)
@@ -449,10 +438,10 @@ void SConfig::LoadInterfaceSettings(IniFile& ini)
   interface->Get("ExtendedFPSInfo", &m_InterfaceExtendedFPSInfo, false);
   interface->Get("ShowActiveTitle", &m_show_active_title, true);
   interface->Get("UseBuiltinTitleDatabase", &m_use_builtin_title_database, true);
-  interface->Get("ShowDevelopmentWarning", &m_show_development_warning, true);
   interface->Get("ThemeName", &theme_name, DEFAULT_THEME_DIR);
   interface->Get("PauseOnFocusLost", &m_PauseOnFocusLost, false);
   interface->Get("DisableTooltips", &m_DisableTooltips, false);
+  interface->Get("DebugModeEnabled", &bEnableDebugging, false);
 }
 
 void SConfig::LoadDisplaySettings(IniFile& ini)
@@ -508,7 +497,6 @@ void SConfig::LoadGameListSettings(IniFile& ini)
   gamelist->Get("ColumnID", &m_showIDColumn, false);
   gamelist->Get("ColumnRegion", &m_showRegionColumn, true);
   gamelist->Get("ColumnSize", &m_showSizeColumn, true);
-  gamelist->Get("ColumnState", &m_showStateColumn, true);
 }
 
 void SConfig::LoadCoreSettings(IniFile& ini)
@@ -517,11 +505,11 @@ void SConfig::LoadCoreSettings(IniFile& ini)
 
   core->Get("SkipIPL", &bHLE_BS2, true);
 #ifdef _M_X86
-  core->Get("CPUCore", &iCPUCore, PowerPC::CORE_JIT64);
+  core->Get("CPUCore", &cpu_core, PowerPC::CPUCore::JIT64);
 #elif _M_ARM_64
-  core->Get("CPUCore", &iCPUCore, PowerPC::CORE_JITARM64);
+  core->Get("CPUCore", &cpu_core, PowerPC::CPUCore::JITARM64);
 #else
-  core->Get("CPUCore", &iCPUCore, PowerPC::CORE_INTERPRETER);
+  core->Get("CPUCore", &cpu_core, PowerPC::CPUCore::Interpreter);
 #endif
   core->Get("Fastmem", &bFastmem, true);
   core->Get("DSPHLE", &bDSPHLE, true);
@@ -557,7 +545,7 @@ void SConfig::LoadCoreSettings(IniFile& ini)
   core->Get("WiimoteEnableSpeaker", &m_WiimoteEnableSpeaker, false);
   core->Get("RunCompareServer", &bRunCompareServer, false);
   core->Get("RunCompareClient", &bRunCompareClient, false);
-  core->Get("MMU", &bMMU, false);
+  core->Get("MMU", &bMMU, bMMU);
   core->Get("BBDumpPort", &iBBDumpPort, -1);
   core->Get("SyncGPU", &bSyncGPU, false);
   core->Get("SyncGpuMaxDistance", &iSyncGpuMaxDistance, 200000);
@@ -604,6 +592,10 @@ void SConfig::LoadDSPSettings(IniFile& ini)
   dsp->Get("Backend", &sBackend, AudioCommon::GetDefaultSoundBackend());
   dsp->Get("Volume", &m_Volume, 100);
   dsp->Get("CaptureLog", &m_DSPCaptureLog, false);
+
+#ifdef _WIN32
+  dsp->Get("WASAPIDevice", &sWASAPIDevice, "default");
+#endif
 
   m_IsMuted = false;
 }
@@ -669,6 +661,14 @@ void SConfig::LoadUSBPassthroughSettings(IniFile& ini)
     if (vid && pid)
       m_usb_passthrough_devices.emplace(vid, pid);
   }
+}
+
+void SConfig::LoadAutoUpdateSettings(IniFile& ini)
+{
+  IniFile::Section* section = ini.GetOrCreateSection("AutoUpdate");
+
+  section->Get("UpdateTrack", &m_auto_update_track, SCM_UPDATE_TRACK_STR);
+  section->Get("HashOverride", &m_auto_update_hash_override, "");
 }
 
 void SConfig::ResetRunningGameMetadata()
@@ -763,7 +763,7 @@ void SConfig::LoadDefaults()
 #endif
 #endif
 
-  iCPUCore = PowerPC::DefaultCPUCore();
+  cpu_core = PowerPC::DefaultCPUCore();
   iTimingVariance = 40;
   bCPUThread = false;
   bSyncGPUOnSkipIdleHack = true;
@@ -772,13 +772,16 @@ void SConfig::LoadDefaults()
   bFastmem = true;
   bFPRF = false;
   bAccurateNaNs = false;
+#ifdef _M_X86_64
+  bMMU = true;
+#else
   bMMU = false;
+#endif
   bDCBZOFF = false;
   bLowDCBZHack = false;
   iBBDumpPort = -1;
   bSyncGPU = false;
   bFastDiscSpeed = false;
-  m_strWiiSDCardPath = File::GetUserPath(F_WIISDCARD_IDX);
   bEnableMemcardSdWriting = true;
   SelectedLanguage = 0;
   bOverrideGCLanguage = false;
@@ -787,6 +790,8 @@ void SConfig::LoadDefaults()
   iLatency = 20;
   m_audio_stretch = false;
   m_audio_stretch_max_latency = 80;
+  bUsePanicHandlers = true;
+  bOnScreenDisplayMessages = true;
 
   iPosX = INT_MIN;
   iPosY = INT_MIN;
@@ -843,7 +848,7 @@ const char* SConfig::GetDirectoryForRegion(DiscIO::Region region)
     return EUR_DIR;
 
   case DiscIO::Region::NTSC_K:
-    _assert_msg_(BOOT, false, "NTSC-K is not a valid GameCube region");
+    ASSERT_MSG(BOOT, false, "NTSC-K is not a valid GameCube region");
     return nullptr;
 
   default:
@@ -866,7 +871,7 @@ struct SetGameMetadata
   bool operator()(const BootParameters::Disc& disc) const
   {
     config->SetRunningGameMetadata(*disc.volume, disc.volume->GetGamePartition());
-    config->bWii = disc.volume->GetVolumeType() == DiscIO::Platform::WII_DISC;
+    config->bWii = disc.volume->GetVolumeType() == DiscIO::Platform::WiiDisc;
     config->m_disc_booted_from_game_list = true;
     *region = disc.volume->GetRegion();
     return true;
@@ -879,7 +884,7 @@ struct SetGameMetadata
 
     config->bWii = executable.reader->IsWii();
 
-    *region = DiscIO::Region::UNKNOWN_REGION;
+    *region = DiscIO::Region::Unknown;
 
     // Strip the .elf/.dol file extension and directories before the name
     SplitPath(executable.path, nullptr, &config->m_debugger_game_id, nullptr);
@@ -952,7 +957,7 @@ bool SConfig::SetPathsAndGameMetadata(const BootParameters& boot)
     return false;
 
   // Fall back to the system menu region, if possible.
-  if (m_region == DiscIO::Region::UNKNOWN_REGION)
+  if (m_region == DiscIO::Region::Unknown)
   {
     IOS::HLE::Kernel ios;
     const IOS::ES::TMDReader system_menu_tmd = ios.GetES()->FindInstalledTMD(Titles::SYSTEM_MENU);
@@ -961,7 +966,7 @@ bool SConfig::SetPathsAndGameMetadata(const BootParameters& boot)
   }
 
   // Fall back to PAL.
-  if (m_region == DiscIO::Region::UNKNOWN_REGION)
+  if (m_region == DiscIO::Region::Unknown)
     m_region = DiscIO::Region::PAL;
 
   // Set up paths
@@ -1032,9 +1037,8 @@ DiscIO::Language SConfig::GetCurrentLanguage(bool wii) const
   DiscIO::Language language = static_cast<DiscIO::Language>(language_value);
 
   // Get rid of invalid values (probably doesn't matter, but might as well do it)
-  if (language > DiscIO::Language::LANGUAGE_UNKNOWN ||
-      language < DiscIO::Language::LANGUAGE_JAPANESE)
-    language = DiscIO::Language::LANGUAGE_UNKNOWN;
+  if (language > DiscIO::Language::Unknown || language < DiscIO::Language::Japanese)
+    language = DiscIO::Language::Unknown;
   return language;
 }
 

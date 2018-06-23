@@ -5,12 +5,10 @@
 #include <cmath>
 
 #include "Common/CommonTypes.h"
-#include "Common/MathUtil.h"
+#include "Common/FloatUtils.h"
 #include "Core/PowerPC/Interpreter/Interpreter.h"
 #include "Core/PowerPC/Interpreter/Interpreter_FPUtils.h"
 #include "Core/PowerPC/PowerPC.h"
-
-using namespace MathUtil;
 
 // These "binary instructions" do not alter FPSCR.
 void Interpreter::ps_sel(UGeckoInstruction inst)
@@ -108,7 +106,7 @@ void Interpreter::ps_div(UGeckoInstruction inst)
 {
   rPS0(inst.FD) = ForceSingle(NI_div(rPS0(inst.FA), rPS0(inst.FB)));
   rPS1(inst.FD) = ForceSingle(NI_div(rPS1(inst.FA), rPS1(inst.FB)));
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -117,17 +115,24 @@ void Interpreter::ps_div(UGeckoInstruction inst)
 void Interpreter::ps_res(UGeckoInstruction inst)
 {
   // this code is based on the real hardware tests
-  double a = rPS0(inst.FB);
-  double b = rPS1(inst.FB);
+  const double a = rPS0(inst.FB);
+  const double b = rPS1(inst.FB);
 
   if (a == 0.0 || b == 0.0)
   {
     SetFPException(FPSCR_ZX);
+    FPSCR.ClearFIFR();
   }
 
-  rPS0(inst.FD) = ApproximateReciprocal(a);
-  rPS1(inst.FD) = ApproximateReciprocal(b);
-  UpdateFPRF(rPS0(inst.FD));
+  if (std::isnan(a) || std::isinf(a) || std::isnan(b) || std::isinf(b))
+    FPSCR.ClearFIFR();
+
+  if (Common::IsSNAN(a) || Common::IsSNAN(b))
+    SetFPException(FPSCR_VXSNAN);
+
+  rPS0(inst.FD) = Common::ApproximateReciprocal(a);
+  rPS1(inst.FD) = Common::ApproximateReciprocal(b);
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -135,20 +140,31 @@ void Interpreter::ps_res(UGeckoInstruction inst)
 
 void Interpreter::ps_rsqrte(UGeckoInstruction inst)
 {
-  if (rPS0(inst.FB) == 0.0 || rPS1(inst.FB) == 0.0)
+  const double ps0 = rPS0(inst.FB);
+  const double ps1 = rPS1(inst.FB);
+
+  if (ps0 == 0.0 || ps1 == 0.0)
   {
     SetFPException(FPSCR_ZX);
+    FPSCR.ClearFIFR();
   }
 
-  if (rPS0(inst.FB) < 0.0 || rPS1(inst.FB) < 0.0)
+  if (ps0 < 0.0 || ps1 < 0.0)
   {
     SetFPException(FPSCR_VXSQRT);
+    FPSCR.ClearFIFR();
   }
 
-  rPS0(inst.FD) = ForceSingle(ApproximateReciprocalSquareRoot(rPS0(inst.FB)));
-  rPS1(inst.FD) = ForceSingle(ApproximateReciprocalSquareRoot(rPS1(inst.FB)));
+  if (std::isnan(ps0) || std::isinf(ps0) || std::isnan(ps1) || std::isinf(ps1))
+    FPSCR.ClearFIFR();
 
-  UpdateFPRF(rPS0(inst.FD));
+  if (Common::IsSNAN(ps0) || Common::IsSNAN(ps1))
+    SetFPException(FPSCR_VXSNAN);
+
+  rPS0(inst.FD) = ForceSingle(Common::ApproximateReciprocalSquareRoot(ps0));
+  rPS1(inst.FD) = ForceSingle(Common::ApproximateReciprocalSquareRoot(ps1));
+
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -158,7 +174,7 @@ void Interpreter::ps_sub(UGeckoInstruction inst)
 {
   rPS0(inst.FD) = ForceSingle(NI_sub(rPS0(inst.FA), rPS0(inst.FB)));
   rPS1(inst.FD) = ForceSingle(NI_sub(rPS1(inst.FA), rPS1(inst.FB)));
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -168,7 +184,7 @@ void Interpreter::ps_add(UGeckoInstruction inst)
 {
   rPS0(inst.FD) = ForceSingle(NI_add(rPS0(inst.FA), rPS0(inst.FB)));
   rPS1(inst.FD) = ForceSingle(NI_add(rPS1(inst.FA), rPS1(inst.FB)));
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -180,7 +196,7 @@ void Interpreter::ps_mul(UGeckoInstruction inst)
   double c1 = Force25Bit(rPS1(inst.FC));
   rPS0(inst.FD) = ForceSingle(NI_mul(rPS0(inst.FA), c0));
   rPS1(inst.FD) = ForceSingle(NI_mul(rPS1(inst.FA), c1));
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -192,7 +208,7 @@ void Interpreter::ps_msub(UGeckoInstruction inst)
   double c1 = Force25Bit(rPS1(inst.FC));
   rPS0(inst.FD) = ForceSingle(NI_msub(rPS0(inst.FA), c0, rPS0(inst.FB)));
   rPS1(inst.FD) = ForceSingle(NI_msub(rPS1(inst.FA), c1, rPS1(inst.FB)));
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -204,7 +220,7 @@ void Interpreter::ps_madd(UGeckoInstruction inst)
   double c1 = Force25Bit(rPS1(inst.FC));
   rPS0(inst.FD) = ForceSingle(NI_madd(rPS0(inst.FA), c0, rPS0(inst.FB)));
   rPS1(inst.FD) = ForceSingle(NI_madd(rPS1(inst.FA), c1, rPS1(inst.FB)));
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -218,7 +234,7 @@ void Interpreter::ps_nmsub(UGeckoInstruction inst)
   double result1 = ForceSingle(NI_msub(rPS1(inst.FA), c1, rPS1(inst.FB)));
   rPS0(inst.FD) = std::isnan(result0) ? result0 : -result0;
   rPS1(inst.FD) = std::isnan(result1) ? result1 : -result1;
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -232,7 +248,7 @@ void Interpreter::ps_nmadd(UGeckoInstruction inst)
   double result1 = ForceSingle(NI_madd(rPS1(inst.FA), c1, rPS1(inst.FB)));
   rPS0(inst.FD) = std::isnan(result0) ? result0 : -result0;
   rPS1(inst.FD) = std::isnan(result1) ? result1 : -result1;
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -244,7 +260,7 @@ void Interpreter::ps_sum0(UGeckoInstruction inst)
   double p1 = ForceSingle(rPS1(inst.FC));
   rPS0(inst.FD) = p0;
   rPS1(inst.FD) = p1;
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -256,7 +272,7 @@ void Interpreter::ps_sum1(UGeckoInstruction inst)
   double p1 = ForceSingle(NI_add(rPS0(inst.FA), rPS1(inst.FB)));
   rPS0(inst.FD) = p0;
   rPS1(inst.FD) = p1;
-  UpdateFPRF(rPS1(inst.FD));
+  PowerPC::UpdateFPRF(rPS1(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -269,7 +285,7 @@ void Interpreter::ps_muls0(UGeckoInstruction inst)
   double p1 = ForceSingle(NI_mul(rPS1(inst.FA), c0));
   rPS0(inst.FD) = p0;
   rPS1(inst.FD) = p1;
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -282,7 +298,7 @@ void Interpreter::ps_muls1(UGeckoInstruction inst)
   double p1 = ForceSingle(NI_mul(rPS1(inst.FA), c1));
   rPS0(inst.FD) = p0;
   rPS1(inst.FD) = p1;
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -295,7 +311,7 @@ void Interpreter::ps_madds0(UGeckoInstruction inst)
   double p1 = ForceSingle(NI_madd(rPS1(inst.FA), c0, rPS1(inst.FB)));
   rPS0(inst.FD) = p0;
   rPS1(inst.FD) = p1;
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -308,7 +324,7 @@ void Interpreter::ps_madds1(UGeckoInstruction inst)
   double p1 = ForceSingle(NI_madd(rPS1(inst.FA), c1, rPS1(inst.FB)));
   rPS0(inst.FD) = p0;
   rPS1(inst.FD) = p1;
-  UpdateFPRF(rPS0(inst.FD));
+  PowerPC::UpdateFPRF(rPS0(inst.FD));
 
   if (inst.Rc)
     Helper_UpdateCR1();
@@ -332,13 +348,4 @@ void Interpreter::ps_cmpu1(UGeckoInstruction inst)
 void Interpreter::ps_cmpo1(UGeckoInstruction inst)
 {
   Helper_FloatCompareOrdered(inst, rPS1(inst.FA), rPS1(inst.FB));
-}
-
-// __________________________________________________________________________________________________
-// dcbz_l
-// TODO(ector) check docs
-void Interpreter::dcbz_l(UGeckoInstruction inst)
-{
-  // FAKE: clear memory instead of clearing the cache block
-  PowerPC::ClearCacheLine(Helper_Get_EA_X(inst) & (~31));
 }

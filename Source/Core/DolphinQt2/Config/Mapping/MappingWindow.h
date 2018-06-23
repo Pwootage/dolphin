@@ -16,6 +16,7 @@ class EmulatedController;
 }
 
 class InputConfig;
+class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
 class QEvent;
@@ -38,9 +39,9 @@ public:
     MAPPING_GC_KEYBOARD,
     MAPPING_GCPAD,
     MAPPING_GC_STEERINGWHEEL,
+    MAPPING_GC_MICROPHONE,
     // Wii
     MAPPING_WIIMOTE_EMU,
-    MAPPING_WIIMOTE_HYBRID,
     // Hotkeys
     MAPPING_HOTKEYS
   };
@@ -48,13 +49,15 @@ public:
   explicit MappingWindow(QWidget* parent, Type type, int port_num);
 
   int GetPort() const;
-  const ciface::Core::DeviceQualifier& GetDeviceQualifier() const;
   std::shared_ptr<ciface::Core::Device> GetDevice() const;
-
   ControllerEmu::EmulatedController* GetController() const;
+  bool IsIterativeInput() const;
+  bool IsMappingAllDevices() const;
+
 signals:
   void Update();
   void ClearFields();
+  void Save();
 
 private:
   void SetMappingType(Type type);
@@ -77,6 +80,7 @@ private:
   ControllerEmu::EmulatedController* m_controller = nullptr;
 
   // Main
+  QCheckBox* m_iterative_input;
   QVBoxLayout* m_main_layout;
   QHBoxLayout* m_config_layout;
   QDialogButtonBox* m_button_box;
@@ -106,5 +110,4 @@ private:
   Type m_mapping_type;
   const int m_port;
   InputConfig* m_config;
-  ciface::Core::DeviceQualifier m_devq;
 };

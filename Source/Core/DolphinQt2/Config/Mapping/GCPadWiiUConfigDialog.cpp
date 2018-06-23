@@ -2,23 +2,26 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
+#include "DolphinQt2/Config/Mapping/GCPadWiiUConfigDialog.h"
+
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QLabel>
 #include <QVBoxLayout>
 
-#include "DolphinQt2/Config/Mapping/GCPadWiiUConfigDialog.h"
-
 #include "Core/ConfigManager.h"
+
 #include "InputCommon/GCAdapter.h"
 
 GCPadWiiUConfigDialog::GCPadWiiUConfigDialog(int port, QWidget* parent)
     : QDialog(parent), m_port{port}
 {
+  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
+
   CreateLayout();
-  ConnectWidgets();
 
   LoadSettings();
+  ConnectWidgets();
 }
 
 void GCPadWiiUConfigDialog::CreateLayout()

@@ -36,7 +36,6 @@ signals:
 
 private:
   void CreateMainLayout();
-  void ConnectWidgets();
   void OnBackendChanged(const QString& backend);
   void OnDescriptionAdded(QWidget* widget, const char* description);
 
@@ -49,6 +48,12 @@ private:
   HacksWidget* m_hacks_widget;
   GeneralWidget* m_general_widget;
   SoftwareRendererWidget* m_software_renderer;
+
+  QWidget* m_wrapped_advanced;
+  QWidget* m_wrapped_enhancements;
+  QWidget* m_wrapped_hacks;
+  QWidget* m_wrapped_general;
+  QWidget* m_wrapped_software;
 
   X11Utils::XRRConfiguration* m_xrr_config;
 

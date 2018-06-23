@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -21,10 +22,12 @@
 #include "Common/StringUtil.h"
 #include "Common/UPnP.h"
 #include "Common/Version.h"
+#include "Core/Config/NetplaySettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/HW/Sram.h"
 #include "Core/NetPlayClient.h"  //for NetPlayUI
 #include "InputCommon/GCPadStatus.h"
+
 #if !defined(_WIN32)
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -88,7 +91,7 @@ NetPlayServer::NetPlayServer(const u16 port, const bool forward_port,
 
     m_server = g_MainNetHost.get();
 
-    if (g_TraversalClient->m_State == TraversalClient::Failure)
+    if (g_TraversalClient->GetState() == TraversalClient::Failure)
       g_TraversalClient->ReconnectToServer();
   }
   else
@@ -273,6 +276,7 @@ unsigned int NetPlayServer::OnConnect(ENetPeer* socket)
   Client player;
   player.pid = pid;
   player.socket = socket;
+
   rpac >> player.revision;
   rpac >> player.name;
 
@@ -343,10 +347,13 @@ unsigned int NetPlayServer::OnConnect(ENetPeer* socket)
     Send(player.socket, spac);
   }
 
+  if (Config::Get(Config::NETPLAY_ENABLE_QOS))
+    player.qos_session = Common::QoSSession(player.socket);
+
   // add client to the player list
   {
     std::lock_guard<std::recursive_mutex> lkp(m_crit.players);
-    m_players.emplace(*(PlayerId*)player.socket->data, player);
+    m_players.emplace(*(PlayerId*)player.socket->data, std::move(player));
     UpdatePadMapping();  // sync pad mappings with everyone
     UpdateWiimoteMapping();
   }
@@ -730,8 +737,8 @@ unsigned int NetPlayServer::OnData(sf::Packet& packet, Client& player)
 
 void NetPlayServer::OnTraversalStateChanged()
 {
-  if (m_dialog && m_traversal_client->m_State == TraversalClient::Failure)
-    m_dialog->OnTraversalError(m_traversal_client->m_FailureReason);
+  if (m_dialog && m_traversal_client->GetState() == TraversalClient::Failure)
+    m_dialog->OnTraversalError(m_traversal_client->GetFailureReason());
 }
 
 // called from ---GUI--- thread
@@ -809,10 +816,10 @@ bool NetPlayServer::StartGame()
 
   // tell clients to start game
   sf::Packet spac;
-  spac << (MessageId)NP_MSG_START_GAME;
+  spac << static_cast<MessageId>(NP_MSG_START_GAME);
   spac << m_current_game;
   spac << m_settings.m_CPUthread;
-  spac << m_settings.m_CPUcore;
+  spac << static_cast<std::underlying_type_t<PowerPC::CPUCore>>(m_settings.m_CPUcore);
   spac << m_settings.m_EnableCheats;
   spac << m_settings.m_SelectedLanguage;
   spac << m_settings.m_OverrideGCLanguage;
@@ -826,8 +833,8 @@ bool NetPlayServer::StartGame()
   spac << m_settings.m_OCFactor;
   spac << m_settings.m_EXIDevice[0];
   spac << m_settings.m_EXIDevice[1];
-  spac << (u32)g_netplay_initial_rtc;
-  spac << (u32)(g_netplay_initial_rtc >> 32);
+  spac << static_cast<u32>(g_netplay_initial_rtc);
+  spac << static_cast<u32>(g_netplay_initial_rtc >> 32);
 
   SendAsyncToClients(std::move(spac));
 

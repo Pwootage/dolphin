@@ -42,13 +42,13 @@ public:
     return "";
   }
   std::map<Language, std::string> GetLongNames() const override;
-  std::vector<u32> GetBanner(int* width, int* height) const override;
+  std::vector<u32> GetBanner(u32* width, u32* height) const override;
   std::string GetApploaderDate(const Partition& partition = PARTITION_NONE) const override
   {
     return "";
   }
   Platform GetVolumeType() const override;
-  // Provides a best guess for the region. Might be inaccurate or UNKNOWN_REGION.
+  // Provides a best guess for the region. Might be inaccurate or Region::Unknown.
   Region GetRegion() const override;
   Country GetCountry(const Partition& partition = PARTITION_NONE) const override;
 

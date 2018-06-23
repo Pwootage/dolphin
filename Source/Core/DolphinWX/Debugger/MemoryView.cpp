@@ -22,9 +22,10 @@
 #include "Common/CommonTypes.h"
 #include "Common/DebugInterface.h"
 #include "Common/StringUtil.h"
+#include "Core/Core.h"
 #include "Core/HW/Memmap.h"
+#include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PPCSymbolDB.h"
-#include "Core/PowerPC/PowerPC.h"
 #include "DolphinWX/Debugger/CodeWindow.h"
 #include "DolphinWX/Debugger/DebuggerUIUtil.h"
 #include "DolphinWX/Debugger/WatchWindow.h"
@@ -130,7 +131,7 @@ wxString CMemoryView::ReadMemoryAsString(u32 address) const
         str += ' ';
     }
 
-    Symbol* sym = g_symbolDB.GetSymbolFromAddr(mem_data);
+    Common::Symbol* sym = g_symbolDB.GetSymbolFromAddr(mem_data);
     if (sym)
     {
       str += StringFromFormat(" # -> %s", sym->name.c_str());
@@ -274,7 +275,7 @@ void CMemoryView::OnPopupMenu(wxCommandEvent& event)
 #endif
 
   case IDM_WATCHADDRESS:
-    debugger->AddWatch(selection);
+    debugger->SetWatch(selection);
     if (watch_window)
       watch_window->NotifyUpdate();
     Refresh();
@@ -310,7 +311,9 @@ void CMemoryView::OnMouseDownR(wxMouseEvent& event)
 // menu.Append(IDM_GOTOINMEMVIEW, _("&Goto in mem view"));
 #if wxUSE_CLIPBOARD
   menu.Append(IDM_COPYADDRESS, _("Copy &address"));
-  menu.Append(IDM_COPYHEX, _("Copy &hex"));
+  menu.Append(IDM_COPYHEX, _("Copy &hex"))
+      ->Enable(Core::GetState() != Core::State::Uninitialized &&
+               PowerPC::HostIsRAMAddress(selection));
 #endif
   // i18n: This kind of "watch" is used for watching emulated memory.
   // It's not related to timekeeping devices.

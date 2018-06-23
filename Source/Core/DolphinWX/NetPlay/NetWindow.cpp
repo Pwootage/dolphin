@@ -47,11 +47,12 @@
 
 #include "DolphinWX/Frame.h"
 #include "DolphinWX/GameListCtrl.h"
-#include "DolphinWX/ISOFile.h"
 #include "DolphinWX/NetPlay/ChangeGameDialog.h"
+#include "DolphinWX/NetPlay/MD5Dialog.h"
 #include "DolphinWX/NetPlay/PadMapDialog.h"
 #include "DolphinWX/WxUtils.h"
-#include "MD5Dialog.h"
+
+#include "UICommon/GameFile.h"
 
 #include "VideoCommon/OnScreenDisplay.h"
 #include "VideoCommon/VideoConfig.h"
@@ -314,7 +315,7 @@ void NetPlayDialog::GetNetSettings(NetSettings& settings)
 {
   SConfig& instance = SConfig::GetInstance();
   settings.m_CPUthread = instance.bCPUThread;
-  settings.m_CPUcore = instance.iCPUCore;
+  settings.m_CPUcore = instance.cpu_core;
   settings.m_EnableCheats = instance.bEnableCheats;
   settings.m_SelectedLanguage = instance.SelectedLanguage;
   settings.m_OverrideGCLanguage = instance.bOverrideGCLanguage;
@@ -335,7 +336,7 @@ std::string NetPlayDialog::FindGame(const std::string& target_game)
   // find path for selected game, sloppy..
   for (u32 i = 0; auto game = m_game_list->GetISO(i); ++i)
     if (target_game == game->GetUniqueIdentifier())
-      return game->GetFileName();
+      return game->GetFilePath();
 
   return "";
 }
@@ -776,7 +777,7 @@ void NetPlayDialog::UpdateHostLabel()
   if (sel == 0)
   {
     // the traversal ID
-    switch (g_TraversalClient->m_State)
+    switch (g_TraversalClient->GetState())
     {
     case TraversalClient::Connecting:
       m_host_label->SetForegroundColour(*wxLIGHT_GREY);
@@ -785,13 +786,15 @@ void NetPlayDialog::UpdateHostLabel()
       m_host_copy_btn->Disable();
       break;
     case TraversalClient::Connected:
+    {
+      const auto host_id = g_TraversalClient->GetHostID();
       m_host_label->SetForegroundColour(*wxBLACK);
-      m_host_label->SetLabel(
-          wxString(g_TraversalClient->m_HostId.data(), g_TraversalClient->m_HostId.size()));
+      m_host_label->SetLabel(wxString(host_id.data(), host_id.size()));
       m_host_copy_btn->SetLabel(_("Copy"));
       m_host_copy_btn->Enable();
       m_host_copy_btn_is_retry = false;
       break;
+    }
     case TraversalClient::Failure:
       m_host_label->SetForegroundColour(*wxBLACK);
       m_host_label->SetLabel("...");

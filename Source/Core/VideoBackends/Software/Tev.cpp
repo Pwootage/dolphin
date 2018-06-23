@@ -564,8 +564,8 @@ void Tev::Indirect(unsigned int stageNum, s32 s, s32 t)
 
 void Tev::Draw()
 {
-  _assert_(Position[0] >= 0 && Position[0] < EFB_WIDTH);
-  _assert_(Position[1] >= 0 && Position[1] < EFB_HEIGHT);
+  ASSERT(Position[0] >= 0 && Position[0] < EFB_WIDTH);
+  ASSERT(Position[1] >= 0 && Position[1] < EFB_HEIGHT);
 
   INCSTAT(stats.thisFrame.tevPixelsIn);
 
@@ -751,14 +751,14 @@ void Tev::Draw()
       // ze = A/(B - (Zs >> B_SHF))
       const s32 denom = bpmem.fog.b_magnitude - (Position[2] >> bpmem.fog.b_shift);
       // in addition downscale magnitude and zs to 0.24 bits
-      ze = (bpmem.fog.a.GetA() * 16777215.0f) / (float)denom;
+      ze = (bpmem.fog.GetA() * 16777215.0f) / static_cast<float>(denom);
     }
     else
     {
       // orthographic
       // ze = a*Zs
       // in addition downscale zs to 0.24 bits
-      ze = bpmem.fog.a.GetA() * ((float)Position[2] / 16777215.0f);
+      ze = bpmem.fog.GetA() * (static_cast<float>(Position[2]) / 16777215.0f);
     }
 
     if (bpmem.fogRange.Base.Enabled)
@@ -776,9 +776,9 @@ void Tev::Draw()
       // Based on that, choose the index such that points which are far away from the z-axis use the
       // 10th "k" value and such that central points use the first value.
       float floatindex = 9.f - std::abs(offset) * 9.f;
-      floatindex = (floatindex < 0.f) ? 0.f : (floatindex > 9.f) ?
-                                        9.f :
-                                        floatindex;  // TODO: This shouldn't be necessary!
+      floatindex = (floatindex < 0.f) ?
+                       0.f :
+                       (floatindex > 9.f) ? 9.f : floatindex;  // TODO: This shouldn't be necessary!
 
       // Get the two closest integer indices, look up the corresponding samples
       const int indexlower = (int)floor(floatindex);
@@ -796,7 +796,7 @@ void Tev::Draw()
                        // GXInitFogAdjTable): 1/cos = c/b = sqrt(a^2+b^2)/b
     }
 
-    ze -= bpmem.fog.c_proj_fsel.GetC();
+    ze -= bpmem.fog.GetC();
 
     // clamp 0 to 1
     float fog = (ze < 0.0f) ? 0.0f : ((ze > 1.0f) ? 1.0f : ze);

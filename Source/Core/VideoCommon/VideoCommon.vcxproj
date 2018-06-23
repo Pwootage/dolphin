@@ -36,6 +36,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <ItemGroup>
+    <ClCompile Include="AbstractFramebuffer.cpp" />
     <ClCompile Include="AbstractStagingTexture.cpp" />
     <ClCompile Include="AbstractTexture.cpp" />
     <ClCompile Include="AsyncRequests.cpp" />
@@ -56,7 +57,6 @@
     <ClCompile Include="HiresTextures_DDSLoader.cpp" />
     <ClCompile Include="ImageWrite.cpp" />
     <ClCompile Include="IndexGenerator.cpp" />
-    <ClCompile Include="MainBase.cpp" />
     <ClCompile Include="OnScreenDisplay.cpp" />
     <ClCompile Include="OpcodeDecoding.cpp" />
     <ClCompile Include="PerfQueryBase.cpp" />
@@ -67,6 +67,7 @@
     <ClCompile Include="RenderBase.cpp" />
     <ClCompile Include="RenderState.cpp" />
     <ClCompile Include="LightingShaderGen.cpp" />
+    <ClCompile Include="ShaderCache.cpp" />
     <ClCompile Include="ShaderGenCommon.cpp" />
     <ClCompile Include="UberShaderCommon.cpp" />
     <ClCompile Include="UberShaderPixel.cpp" />
@@ -98,7 +99,10 @@
     <ClCompile Include="XFStructs.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AbstractFramebuffer.h" />
     <ClInclude Include="AbstractStagingTexture.h" />
+    <ClInclude Include="AbstractPipeline.h" />
+    <ClInclude Include="AbstractShader.h" />
     <ClInclude Include="AbstractTexture.h" />
     <ClInclude Include="AsyncRequests.h" />
     <ClInclude Include="AsyncShaderCompiler.h" />
@@ -115,6 +119,8 @@
     <ClInclude Include="Fifo.h" />
     <ClInclude Include="FPSCounter.h" />
     <ClInclude Include="FramebufferManagerBase.h" />
+    <ClInclude Include="GXPipelineTypes.h" />
+    <ClInclude Include="ShaderCache.h" />
     <ClInclude Include="UberShaderCommon.h" />
     <ClInclude Include="UberShaderPixel.h" />
     <ClInclude Include="HiresTextures.h" />
@@ -167,9 +173,6 @@
   <ItemGroup>
     <ProjectReference Include="$(ExternalsDir)libpng\png\png.vcxproj">
       <Project>{4c9f135b-a85e-430c-bad4-4c67ef5fc12c}</Project>
-    </ProjectReference>
-    <ProjectReference Include="$(ExternalsDir)SOIL\SOIL.vcxproj">
-      <Project>{b441cc62-877e-4b3f-93e0-0de80544f705}</Project>
     </ProjectReference>
     <ProjectReference Include="$(ExternalsDir)xxhash\xxhash.vcxproj">
       <Project>{677EA016-1182-440C-9345-DC88D1E98C0C}</Project>

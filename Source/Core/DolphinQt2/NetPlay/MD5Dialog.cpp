@@ -2,15 +2,15 @@
 // Licensed under GPLv2+
 // Refer to the license.txt file included.
 
-#include "MD5Dialog.h"
-
-#include "DolphinQt2/Settings.h"
+#include "DolphinQt2/NetPlay/MD5Dialog.h"
 
 #include <QDialogButtonBox>
 #include <QGroupBox>
 #include <QLabel>
 #include <QProgressBar>
 #include <QVBoxLayout>
+
+#include "DolphinQt2/Settings.h"
 
 static QString GetPlayerNameFromPID(int pid)
 {
@@ -31,6 +31,7 @@ MD5Dialog::MD5Dialog(QWidget* parent) : QDialog(parent)
   CreateWidgets();
   ConnectWidgets();
   setWindowTitle(tr("MD5 Checksum"));
+  setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 }
 
 void MD5Dialog::CreateWidgets()
@@ -109,7 +110,7 @@ void MD5Dialog::SetResult(int pid, const std::string& result)
   m_status_labels[pid]->setText(
       tr("%1[%2]: %3").arg(player_name, QString::number(pid), QString::fromStdString(result)));
 
-  if (m_last_result == "")
+  if (m_last_result.empty())
   {
     m_check_label->setText(tr("The hashes match!"));
     return;

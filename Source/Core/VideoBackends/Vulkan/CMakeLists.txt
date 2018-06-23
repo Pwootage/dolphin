@@ -1,4 +1,4 @@
-set(SRCS
+add_library(videovulkan
   BoundingBox.cpp
   CommandBufferManager.cpp
   FramebufferManager.cpp
@@ -19,25 +19,34 @@ set(SRCS
   Util.cpp
   VertexFormat.cpp
   VertexManager.cpp
+  VKPipeline.cpp
+  VKShader.cpp
   VKTexture.cpp
   VulkanContext.cpp
   VulkanLoader.cpp
   main.cpp
 )
 
-set(LIBS
-  videocommon
+target_link_libraries(videovulkan
+PUBLIC
   common
+  videocommon
+
+PRIVATE
+  # Link against glslang, the other necessary libraries are referenced by the executable.
+  glslang
+  xxhash
 )
 
 # Only include the Vulkan headers when building the Vulkan backend
-include_directories(${CMAKE_SOURCE_DIR}/Externals/Vulkan/Include)
+target_include_directories(videovulkan
+PRIVATE
+  ${CMAKE_SOURCE_DIR}/Externals/Vulkan/Include
+)
 
 # Silence warnings on glslang by flagging it as a system include
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/Externals/glslang/glslang/Public)
-include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/Externals/glslang/SPIRV)
-
-# Link against glslang, the other necessary libraries are referenced by the executable.
-add_dolphin_library(videovulkan "${SRCS}" "${LIBS}")
-target_link_libraries(videovulkan PRIVATE glslang)
-
+target_include_directories(videovulkan
+SYSTEM PRIVATE
+  ${CMAKE_SOURCE_DIR}/Externals/glslang/glslang/Public
+  ${CMAKE_SOURCE_DIR}/Externals/glslang/SPIRV
+)

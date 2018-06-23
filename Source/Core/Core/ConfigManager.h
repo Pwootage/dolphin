@@ -22,14 +22,22 @@ enum class Language;
 enum class Region;
 struct Partition;
 class Volume;
-}
+}  // namespace DiscIO
+
 namespace IOS
 {
 namespace ES
 {
 class TMDReader;
 }
-}
+}  // namespace IOS
+
+namespace PowerPC
+{
+enum class CPUCore;
+}  // namespace PowerPC
+
+struct BootParameters;
 
 // DSP Backend Types
 #define BACKEND_NULLSOUND _trans("No Audio Output")
@@ -39,17 +47,16 @@ class TMDReader;
 #define BACKEND_PULSEAUDIO "Pulse"
 #define BACKEND_XAUDIO2 "XAudio2"
 #define BACKEND_OPENSLES "OpenSLES"
+#define BACKEND_WASAPI "WASAPI (Exclusive Mode)"
 
-enum GPUDeterminismMode
+enum class GPUDeterminismMode
 {
-  GPU_DETERMINISM_AUTO,
-  GPU_DETERMINISM_NONE,
+  Auto,
+  Disabled,
   // This is currently the only mode.  There will probably be at least
   // one more at some point.
-  GPU_DETERMINISM_FAKE_COMPLETION,
+  FakeCompletion,
 };
-
-struct BootParameters;
 
 struct SConfig
 {
@@ -74,7 +81,7 @@ struct SConfig
   bool bAutomaticStart = false;
   bool bBootToPause = false;
 
-  int iCPUCore;  // Uses the values of PowerPC::CPUCore
+  PowerPC::CPUCore cpu_core;
 
   bool bJITNoBlockCache = false;
   bool bJITNoBlockLinking = false;
@@ -185,7 +192,6 @@ struct SConfig
   std::string m_strBootROM;
   std::string m_strSRAM;
   std::string m_strDefaultISO;
-  std::string m_strWiiSDCardPath;
 
   std::string m_perfDir;
 
@@ -219,9 +225,6 @@ struct SConfig
   static IniFile LoadLocalGameIni(const std::string& id, std::optional<u16> revision);
   static IniFile LoadGameIni(const std::string& id, std::optional<u16> revision);
 
-  std::string m_NANDPath;
-  std::string m_DumpPath;
-
   std::string m_strMemoryCardA;
   std::string m_strMemoryCardB;
   std::string m_strGbaCartA;
@@ -243,7 +246,6 @@ struct SConfig
   bool m_InterfaceExtendedFPSInfo;
   bool m_show_active_title = false;
   bool m_use_builtin_title_database = true;
-  bool m_show_development_warning;
 
   bool m_ListDrives;
   bool m_ListWad;
@@ -277,7 +279,6 @@ struct SConfig
   bool m_showIDColumn;
   bool m_showRegionColumn;
   bool m_showSizeColumn;
-  bool m_showStateColumn;
 
   std::string m_WirelessMac;
   bool m_PauseMovie;
@@ -304,6 +305,11 @@ struct SConfig
   int m_Volume;
   std::string sBackend;
 
+#ifdef _WIN32
+  // WSAPI settings
+  std::string sWASAPIDevice;
+#endif
+
   // Input settings
   bool m_BackgroundInput;
   bool m_AdapterRumble[4];
@@ -315,6 +321,10 @@ struct SConfig
   bool m_SSLVerifyCert;
   bool m_SSLDumpRootCA;
   bool m_SSLDumpPeerCert;
+
+  // Auto-update settings
+  std::string m_auto_update_track;
+  std::string m_auto_update_hash_override;
 
   SConfig(const SConfig&) = delete;
   SConfig& operator=(const SConfig&) = delete;
@@ -349,6 +359,7 @@ private:
   void SaveAnalyticsSettings(IniFile& ini);
   void SaveBluetoothPassthroughSettings(IniFile& ini);
   void SaveUSBPassthroughSettings(IniFile& ini);
+  void SaveAutoUpdateSettings(IniFile& ini);
 
   void LoadGeneralSettings(IniFile& ini);
   void LoadInterfaceSettings(IniFile& ini);
@@ -363,6 +374,7 @@ private:
   void LoadAnalyticsSettings(IniFile& ini);
   void LoadBluetoothPassthroughSettings(IniFile& ini);
   void LoadUSBPassthroughSettings(IniFile& ini);
+  void LoadAutoUpdateSettings(IniFile& ini);
 
   void SetRunningGameMetadata(const std::string& game_id, u64 title_id, u16 revision,
                               Core::TitleDatabase::TitleType type);

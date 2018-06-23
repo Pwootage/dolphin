@@ -17,7 +17,10 @@
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
+
 #include "Core/ConfigManager.h"
+
+#include "UICommon/UICommon.h"
 
 constexpr u32 MO_MAGIC_NUMBER = 0x950412de;
 
@@ -53,7 +56,10 @@ public:
   // boost::iterator_facade library, which nicely separates out application logic from
   // iterator-concept logic.
   void advance(difference_type n) { m_index += n; }
-  difference_type distance_to(const MoIterator& other) const { return other.m_index - m_index; }
+  difference_type distance_to(const MoIterator& other) const
+  {
+    return static_cast<difference_type>(other.m_index) - m_index;
+  }
   reference dereference() const
   {
     u32 offset = ReadU32(&m_data[m_table_offset + m_index * 8 + 4]);
@@ -177,7 +183,7 @@ public:
     auto iter = std::lower_bound(begin, end, original_string,
                                  [](const char* a, const char* b) { return strcmp(a, b) < 0; });
 
-    if (strcmp(*iter, original_string) != 0)
+    if (iter == end || strcmp(*iter, original_string) != 0)
       return original_string;
 
     u32 offset = ReadU32(&m_data[m_offset_translation_table + std::distance(begin, iter) * 8 + 4]);
@@ -213,7 +219,7 @@ private:
   MoFile m_mo_file;
 };
 
-QStringList FindPossibleLanguageCodes(const QString& exact_language_code)
+static QStringList FindPossibleLanguageCodes(const QString& exact_language_code)
 {
   QStringList possible_language_codes;
   possible_language_codes << exact_language_code;
@@ -237,10 +243,12 @@ QStringList FindPossibleLanguageCodes(const QString& exact_language_code)
   // On macOS, Chinese (Simplified) and Chinese (Traditional) are represented as zh-Hans and
   // zh-Hant, but on Linux they're represented as zh-CN and zh-TW. Qt should probably include the
   // script subtags on Linux, but it doesn't.
-  if (possible_language_codes.contains(QStringLiteral("zh_Hans")))
-    possible_language_codes << QStringLiteral("zh_CN");
-  if (possible_language_codes.contains(QStringLiteral("zh_Hant")))
-    possible_language_codes << QStringLiteral("zh_TW");
+  const int hans_index = possible_language_codes.indexOf(QStringLiteral("zh_Hans"));
+  if (hans_index != -1)
+    possible_language_codes.insert(hans_index + 1, QStringLiteral("zh_CN"));
+  const int hant_index = possible_language_codes.indexOf(QStringLiteral("zh_Hant"));
+  if (hant_index != -1)
+    possible_language_codes.insert(hant_index + 1, QStringLiteral("zh_TW"));
 
   return possible_language_codes;
 }
@@ -265,6 +273,10 @@ static bool TryInstallTranslator(const QString& exact_language_code)
     if (translator->load(filename))
     {
       QApplication::instance()->installTranslator(translator);
+
+      QLocale::setDefault(QLocale(exact_language_code));
+      UICommon::SetLocale(exact_language_code.toStdString());
+
       return true;
     }
     translator->deleteLater();

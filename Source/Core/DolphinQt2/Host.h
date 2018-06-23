@@ -4,8 +4,9 @@
 
 #pragma once
 
-#include <QObject>
 #include <atomic>
+
+#include <QObject>
 
 // Singleton that talks to the Core via the interface defined in Core/Host.h.
 // Because Host_* calls might come from different threads than the MainWindow,
@@ -26,16 +27,21 @@ public:
   void SetRenderHandle(void* handle);
   void SetRenderFocus(bool focus);
   void SetRenderFullscreen(bool fullscreen);
+  void ResizeSurface(int new_width, int new_height);
+  void RequestNotifyMapLoaded();
 
 signals:
   void RequestTitle(const QString& title);
   void RequestStop();
   void RequestRenderSize(int w, int h);
+  void UpdateProgressDialog(QString label, int position, int maximum);
+  void UpdateDisasmDialog();
+  void NotifyMapLoaded();
 
 private:
   Host();
 
-  std::atomic<void*> m_render_handle;
-  std::atomic<bool> m_render_focus;
-  std::atomic<bool> m_render_fullscreen;
+  std::atomic<void*> m_render_handle{nullptr};
+  std::atomic<bool> m_render_focus{false};
+  std::atomic<bool> m_render_fullscreen{false};
 };

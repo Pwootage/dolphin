@@ -19,9 +19,6 @@ namespace OGL
 {
 namespace
 {
-std::array<u32, 8> s_Textures;
-u32 s_ActiveTexture;
-
 GLenum GetGLInternalFormatForTextureFormat(AbstractTextureFormat format, bool storage)
 {
   switch (format)
@@ -38,6 +35,16 @@ GLenum GetGLInternalFormatForTextureFormat(AbstractTextureFormat format, bool st
     return storage ? GL_RGBA8 : GL_RGBA;
   case AbstractTextureFormat::BGRA8:
     return storage ? GL_RGBA8 : GL_BGRA;
+  case AbstractTextureFormat::R16:
+    return GL_R16;
+  case AbstractTextureFormat::R32F:
+    return GL_R32F;
+  case AbstractTextureFormat::D16:
+    return GL_DEPTH_COMPONENT16;
+  case AbstractTextureFormat::D32F:
+    return GL_DEPTH_COMPONENT32F;
+  case AbstractTextureFormat::D32F_S8:
+    return GL_DEPTH32F_STENCIL8;
   default:
     PanicAlert("Unhandled texture format.");
     return storage ? GL_RGBA8 : GL_RGBA;
@@ -52,6 +59,14 @@ GLenum GetGLFormatForTextureFormat(AbstractTextureFormat format)
     return GL_RGBA;
   case AbstractTextureFormat::BGRA8:
     return GL_BGRA;
+  case AbstractTextureFormat::R16:
+  case AbstractTextureFormat::R32F:
+    return GL_RED;
+  case AbstractTextureFormat::D16:
+  case AbstractTextureFormat::D32F:
+    return GL_DEPTH_COMPONENT;
+  case AbstractTextureFormat::D32F_S8:
+    return GL_DEPTH_STENCIL;
   // Compressed texture formats don't use this parameter.
   default:
     return GL_UNSIGNED_BYTE;
@@ -65,6 +80,16 @@ GLenum GetGLTypeForTextureFormat(AbstractTextureFormat format)
   case AbstractTextureFormat::RGBA8:
   case AbstractTextureFormat::BGRA8:
     return GL_UNSIGNED_BYTE;
+  case AbstractTextureFormat::R16:
+    return GL_UNSIGNED_SHORT;
+  case AbstractTextureFormat::R32F:
+    return GL_FLOAT;
+  case AbstractTextureFormat::D16:
+    return GL_UNSIGNED_SHORT;
+  case AbstractTextureFormat::D32F:
+    return GL_FLOAT;
+  case AbstractTextureFormat::D32F_S8:
+    return GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
   // Compressed texture formats don't use this parameter.
   default:
     return GL_UNSIGNED_BYTE;
@@ -83,63 +108,65 @@ bool UsePersistentStagingBuffers()
 
 OGLTexture::OGLTexture(const TextureConfig& tex_config) : AbstractTexture(tex_config)
 {
+  DEBUG_ASSERT_MSG(VIDEO, !tex_config.IsMultisampled() || tex_config.levels == 1,
+                   "OpenGL does not support multisampled textures with mip levels");
+
+  GLenum target =
+      tex_config.IsMultisampled() ? GL_TEXTURE_2D_MULTISAMPLE_ARRAY : GL_TEXTURE_2D_ARRAY;
   glGenTextures(1, &m_texId);
-
   glActiveTexture(GL_TEXTURE9);
-  glBindTexture(GL_TEXTURE_2D_ARRAY, m_texId);
+  glBindTexture(target, m_texId);
 
-  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAX_LEVEL, m_config.levels - 1);
+  glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, m_config.levels - 1);
 
-  if (g_ogl_config.bSupportsTextureStorage)
+  GLenum gl_internal_format = GetGLInternalFormatForTextureFormat(m_config.format, true);
+  if (tex_config.IsMultisampled())
   {
-    GLenum gl_internal_format = GetGLInternalFormatForTextureFormat(m_config.format, true);
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, m_config.levels, gl_internal_format, m_config.width,
-                   m_config.height, m_config.layers);
+    if (g_ogl_config.bSupportsTextureStorage)
+      glTexStorage3DMultisample(target, tex_config.samples, gl_internal_format, m_config.width,
+                                m_config.height, m_config.layers, GL_FALSE);
+    else
+      glTexImage3DMultisample(target, tex_config.samples, gl_internal_format, m_config.width,
+                              m_config.height, m_config.layers, GL_FALSE);
+  }
+  else if (g_ogl_config.bSupportsTextureStorage)
+  {
+    glTexStorage3D(target, m_config.levels, gl_internal_format, m_config.width, m_config.height,
+                   m_config.layers);
   }
 
   if (m_config.rendertarget)
   {
     // We can't render to compressed formats.
-    _assert_(!IsCompressedFormat(m_config.format));
-
-    if (!g_ogl_config.bSupportsTextureStorage)
+    ASSERT(!IsCompressedFormat(m_config.format));
+    if (!g_ogl_config.bSupportsTextureStorage && !tex_config.IsMultisampled())
     {
       for (u32 level = 0; level < m_config.levels; level++)
       {
-        glTexImage3D(GL_TEXTURE_2D_ARRAY, level, GL_RGBA, std::max(m_config.width >> level, 1u),
+        glTexImage3D(target, level, GL_RGBA, std::max(m_config.width >> level, 1u),
                      std::max(m_config.height >> level, 1u), m_config.layers, 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, nullptr);
       }
     }
     glGenFramebuffers(1, &m_framebuffer);
     FramebufferManager::SetFramebuffer(m_framebuffer);
-    FramebufferManager::FramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                           GL_TEXTURE_2D_ARRAY, m_texId, 0);
+    FramebufferManager::FramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, m_texId,
+                                           0);
 
     // We broke the framebuffer binding here, and need to restore it, as the CreateTexture
     // method is in the base renderer class and can be called by VideoCommon.
     FramebufferManager::SetFramebuffer(0);
   }
-
-  SetStage();
 }
 
 OGLTexture::~OGLTexture()
 {
+  g_renderer->UnbindTexture(this);
   if (m_texId)
-  {
-    for (auto& gtex : s_Textures)
-      if (gtex == m_texId)
-        gtex = 0;
     glDeleteTextures(1, &m_texId);
-    m_texId = 0;
-  }
 
   if (m_framebuffer)
-  {
     glDeleteFramebuffers(1, &m_framebuffer);
-    m_framebuffer = 0;
-  }
 }
 
 GLuint OGLTexture::GetRawTexIdentifier() const
@@ -152,29 +179,14 @@ GLuint OGLTexture::GetFramebuffer() const
   return m_framebuffer;
 }
 
-void OGLTexture::Bind(unsigned int stage)
-{
-  if (s_Textures[stage] != m_texId)
-  {
-    if (s_ActiveTexture != stage)
-    {
-      glActiveTexture(GL_TEXTURE0 + stage);
-      s_ActiveTexture = stage;
-    }
-
-    glBindTexture(GL_TEXTURE_2D_ARRAY, m_texId);
-    s_Textures[stage] = m_texId;
-  }
-}
-
 void OGLTexture::CopyRectangleFromTexture(const AbstractTexture* src,
                                           const MathUtil::Rectangle<int>& src_rect, u32 src_layer,
                                           u32 src_level, const MathUtil::Rectangle<int>& dst_rect,
                                           u32 dst_layer, u32 dst_level)
 {
   const OGLTexture* srcentry = static_cast<const OGLTexture*>(src);
-  _assert_(src_rect.GetWidth() == dst_rect.GetWidth() &&
-           src_rect.GetHeight() == dst_rect.GetHeight());
+  ASSERT(src_rect.GetWidth() == dst_rect.GetWidth() &&
+         src_rect.GetHeight() == dst_rect.GetHeight());
   if (g_ogl_config.bSupportsCopySubImage)
   {
     glCopyImageSubData(srcentry->m_texId, GL_TEXTURE_2D_ARRAY, src_level, src_rect.left,
@@ -184,47 +196,60 @@ void OGLTexture::CopyRectangleFromTexture(const AbstractTexture* src,
   }
   else
   {
-    // If it isn't a single leveled/layered texture, we need to update the framebuffer.
-    bool update_src_framebuffer =
-        srcentry->m_framebuffer == 0 || srcentry->m_config.layers != 0 || src_level != 0;
-    bool update_dst_framebuffer = m_framebuffer == 0 || m_config.layers != 0 || dst_level != 0;
-    if (!m_framebuffer)
-      glGenFramebuffers(1, &m_framebuffer);
-    if (!srcentry->m_framebuffer)
-      glGenFramebuffers(1, &const_cast<OGLTexture*>(srcentry)->m_framebuffer);
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, srcentry->m_framebuffer);
-    if (update_src_framebuffer)
-    {
-      glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, srcentry->m_texId,
-                                src_level, src_layer);
-    }
-
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebuffer);
-    if (update_dst_framebuffer)
-    {
-      glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_texId, dst_level,
-                                dst_layer);
-    }
-
-    glBlitFramebuffer(src_rect.left, src_rect.top, src_rect.right, src_rect.bottom, dst_rect.left,
-                      dst_rect.top, dst_rect.right, dst_rect.bottom, GL_COLOR_BUFFER_BIT,
-                      GL_NEAREST);
-
-    if (update_src_framebuffer)
-    {
-      FramebufferManager::FramebufferTexture(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                             GL_TEXTURE_2D_ARRAY, srcentry->m_texId, 0);
-    }
-    if (update_dst_framebuffer)
-    {
-      FramebufferManager::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                             GL_TEXTURE_2D_ARRAY, m_texId, 0);
-    }
-
-    FramebufferManager::SetFramebuffer(0);
+    BlitFramebuffer(const_cast<OGLTexture*>(srcentry), src_rect, src_layer, src_level, dst_rect,
+                    dst_layer, dst_level);
   }
 }
+
+void OGLTexture::BlitFramebuffer(OGLTexture* srcentry, const MathUtil::Rectangle<int>& src_rect,
+                                 u32 src_layer, u32 src_level,
+                                 const MathUtil::Rectangle<int>& dst_rect, u32 dst_layer,
+                                 u32 dst_level)
+{
+  // If it isn't a single leveled/layered texture, we need to update the framebuffer.
+  bool update_src_framebuffer =
+      srcentry->m_framebuffer == 0 || srcentry->m_config.layers != 0 || src_level != 0;
+  bool update_dst_framebuffer = m_framebuffer == 0 || m_config.layers != 0 || dst_level != 0;
+  if (!m_framebuffer)
+    glGenFramebuffers(1, &m_framebuffer);
+  if (!srcentry->m_framebuffer)
+    glGenFramebuffers(1, &const_cast<OGLTexture*>(srcentry)->m_framebuffer);
+
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, srcentry->m_framebuffer);
+  if (update_src_framebuffer)
+  {
+    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, srcentry->m_texId,
+                              src_level, src_layer);
+  }
+
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_framebuffer);
+  if (update_dst_framebuffer)
+  {
+    glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_texId, dst_level,
+                              dst_layer);
+  }
+
+  glBlitFramebuffer(src_rect.left, src_rect.top, src_rect.right, src_rect.bottom, dst_rect.left,
+                    dst_rect.top, dst_rect.right, dst_rect.bottom, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+  if (update_src_framebuffer)
+  {
+    FramebufferManager::FramebufferTexture(
+        GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        srcentry->m_config.IsMultisampled() ? GL_TEXTURE_2D_MULTISAMPLE_ARRAY : GL_TEXTURE_2D_ARRAY,
+        srcentry->m_texId, 0);
+  }
+  if (update_dst_framebuffer)
+  {
+    FramebufferManager::FramebufferTexture(
+        GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+        m_config.IsMultisampled() ? GL_TEXTURE_2D_MULTISAMPLE_ARRAY : GL_TEXTURE_2D_ARRAY, m_texId,
+        0);
+  }
+
+  FramebufferManager::SetFramebuffer(0);
+}
+
 void OGLTexture::ScaleRectangleFromTexture(const AbstractTexture* source,
                                            const MathUtil::Rectangle<int>& srcrect,
                                            const MathUtil::Rectangle<int>& dstrect)
@@ -247,8 +272,18 @@ void OGLTexture::ScaleRectangleFromTexture(const AbstractTexture* source,
   glUniform4f(TextureCache::GetInstance()->GetColorCopyPositionUniform(), float(srcrect.left),
               float(srcrect.top), float(srcrect.GetWidth()), float(srcrect.GetHeight()));
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-  FramebufferManager::SetFramebuffer(0);
   g_renderer->RestoreAPIState();
+}
+
+void OGLTexture::ResolveFromTexture(const AbstractTexture* src,
+                                    const MathUtil::Rectangle<int>& rect, u32 layer, u32 level)
+{
+  const OGLTexture* srcentry = static_cast<const OGLTexture*>(src);
+  DEBUG_ASSERT(m_config.samples > 1 && m_config.width == srcentry->m_config.width &&
+               m_config.height == srcentry->m_config.height && m_config.samples == 1);
+  DEBUG_ASSERT(rect.left + rect.GetWidth() <= static_cast<int>(srcentry->m_config.width) &&
+               rect.top + rect.GetHeight() <= static_cast<int>(srcentry->m_config.height));
+  BlitFramebuffer(const_cast<OGLTexture*>(srcentry), rect, layer, level, rect, layer, level);
 }
 
 void OGLTexture::Load(u32 level, u32 width, u32 height, u32 row_length, const u8* buffer,
@@ -300,19 +335,6 @@ void OGLTexture::Load(u32 level, u32 width, u32 height, u32 row_length, const u8
 
   if (row_length != width)
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-
-  SetStage();
-}
-
-void OGLTexture::DisableStage(unsigned int stage)
-{
-}
-
-void OGLTexture::SetStage()
-{
-  // -1 is the initial value as we don't know which texture should be bound
-  if (s_ActiveTexture != (u32)-1)
-    glActiveTexture(GL_TEXTURE0 + s_ActiveTexture);
 }
 
 OGLStagingTexture::OGLStagingTexture(StagingTextureType type, const TextureConfig& config,
@@ -375,7 +397,7 @@ std::unique_ptr<OGLStagingTexture> OGLStagingTexture::Create(StagingTextureType 
     glBufferStorage(target, buffer_size, nullptr, buffer_flags);
     buffer_ptr =
         reinterpret_cast<char*>(glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, buffer_size, map_flags));
-    _assert_(buffer_ptr != nullptr);
+    ASSERT(buffer_ptr != nullptr);
   }
   else
   {
@@ -394,13 +416,13 @@ void OGLStagingTexture::CopyFromTexture(const AbstractTexture* src,
                                         const MathUtil::Rectangle<int>& src_rect, u32 src_layer,
                                         u32 src_level, const MathUtil::Rectangle<int>& dst_rect)
 {
-  _assert_(m_type == StagingTextureType::Readback);
-  _assert_(src_rect.GetWidth() == dst_rect.GetWidth() &&
-           src_rect.GetHeight() == dst_rect.GetHeight());
-  _assert_(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= src->GetConfig().width &&
-           src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= src->GetConfig().height);
-  _assert_(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= m_config.width &&
-           dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= m_config.height);
+  ASSERT(m_type == StagingTextureType::Readback);
+  ASSERT(src_rect.GetWidth() == dst_rect.GetWidth() &&
+         src_rect.GetHeight() == dst_rect.GetHeight());
+  ASSERT(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= src->GetConfig().width &&
+         src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= src->GetConfig().height);
+  ASSERT(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= m_config.width &&
+         dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= m_config.height);
 
   // Unmap the buffer before writing when not using persistent mappings.
   if (!UsePersistentStagingBuffers())
@@ -427,12 +449,10 @@ void OGLStagingTexture::CopyFromTexture(const AbstractTexture* src,
   }
   else
   {
-    glActiveTexture(GL_TEXTURE9);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, gltex->GetRawTexIdentifier());
     if (g_ogl_config.bSupportsTextureSubImage)
     {
       glGetTextureSubImage(
-          GL_TEXTURE_2D_ARRAY, src_level, src_rect.left, src_rect.top, src_layer,
+          gltex->GetRawTexIdentifier(), src_level, src_rect.left, src_rect.top, src_layer,
           src_rect.GetWidth(), src_rect.GetHeight(), 1,
           GetGLFormatForTextureFormat(m_config.format), GetGLTypeForTextureFormat(m_config.format),
           static_cast<GLsizei>(m_buffer_size - dst_offset), reinterpret_cast<void*>(dst_offset));
@@ -442,11 +462,11 @@ void OGLStagingTexture::CopyFromTexture(const AbstractTexture* src,
       // TODO: Investigate whether it's faster to use glReadPixels() with a framebuffer, since we're
       // copying the whole texture, which may waste bandwidth. So we're trading CPU work in creating
       // the framebuffer for GPU work in copying potentially redundant texels.
+      glActiveTexture(GL_TEXTURE9);
+      glBindTexture(GL_TEXTURE_2D_ARRAY, gltex->GetRawTexIdentifier());
       glGetTexImage(GL_TEXTURE_2D_ARRAY, src_level, GetGLFormatForTextureFormat(m_config.format),
                     GetGLTypeForTextureFormat(m_config.format), nullptr);
     }
-
-    OGLTexture::SetStage();
   }
 
   glPixelStorei(GL_PACK_ROW_LENGTH, 0);
@@ -460,6 +480,7 @@ void OGLStagingTexture::CopyFromTexture(const AbstractTexture* src,
 
     glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
     m_fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
   }
 
   m_needs_flush = true;
@@ -470,13 +491,13 @@ void OGLStagingTexture::CopyToTexture(const MathUtil::Rectangle<int>& src_rect,
                                       const MathUtil::Rectangle<int>& dst_rect, u32 dst_layer,
                                       u32 dst_level)
 {
-  _assert_(m_type == StagingTextureType::Upload);
-  _assert_(src_rect.GetWidth() == dst_rect.GetWidth() &&
-           src_rect.GetHeight() == dst_rect.GetHeight());
-  _assert_(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= m_config.width &&
-           src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= m_config.height);
-  _assert_(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= dst->GetConfig().width &&
-           dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= dst->GetConfig().height);
+  ASSERT(m_type == StagingTextureType::Upload);
+  ASSERT(src_rect.GetWidth() == dst_rect.GetWidth() &&
+         src_rect.GetHeight() == dst_rect.GetHeight());
+  ASSERT(src_rect.left >= 0 && static_cast<u32>(src_rect.right) <= m_config.width &&
+         src_rect.top >= 0 && static_cast<u32>(src_rect.bottom) <= m_config.height);
+  ASSERT(dst_rect.left >= 0 && static_cast<u32>(dst_rect.right) <= dst->GetConfig().width &&
+         dst_rect.top >= 0 && static_cast<u32>(dst_rect.bottom) <= dst->GetConfig().height);
 
   size_t src_offset = src_rect.top * m_config.GetStride() + src_rect.left * m_texel_size;
   size_t copy_size = src_rect.GetHeight() * m_config.GetStride();
@@ -508,7 +529,6 @@ void OGLStagingTexture::CopyToTexture(const MathUtil::Rectangle<int>& src_rect,
                   dst_rect.GetWidth(), dst_rect.GetHeight(), 1,
                   GetGLFormatForTextureFormat(m_config.format),
                   GetGLTypeForTextureFormat(m_config.format), reinterpret_cast<void*>(src_offset));
-  OGLTexture::SetStage();
 
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
@@ -519,6 +539,7 @@ void OGLStagingTexture::CopyToTexture(const MathUtil::Rectangle<int>& src_rect,
       glDeleteSync(m_fence);
 
     m_fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
   }
 
   m_needs_flush = true;
@@ -534,7 +555,7 @@ void OGLStagingTexture::Flush()
     return;
   }
 
-  glClientWaitSync(m_fence, GL_SYNC_FLUSH_COMMANDS_BIT, GL_TIMEOUT_IGNORED);
+  glClientWaitSync(m_fence, 0, GL_TIMEOUT_IGNORED);
   glDeleteSync(m_fence);
   m_fence = 0;
   m_needs_flush = false;
@@ -555,10 +576,8 @@ bool OGLStagingTexture::Map()
     flags = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT;
   glBindBuffer(m_target, m_buffer_name);
   m_map_pointer = reinterpret_cast<char*>(glMapBufferRange(m_target, 0, m_buffer_size, flags));
-  if (!m_map_pointer)
-    return false;
-
-  return true;
+  glBindBuffer(m_target, 0);
+  return m_map_pointer != nullptr;
 }
 
 void OGLStagingTexture::Unmap()
@@ -571,6 +590,74 @@ void OGLStagingTexture::Unmap()
   glUnmapBuffer(m_target);
   glBindBuffer(m_target, 0);
   m_map_pointer = nullptr;
+}
+
+OGLFramebuffer::OGLFramebuffer(AbstractTextureFormat color_format,
+                               AbstractTextureFormat depth_format, u32 width, u32 height,
+                               u32 layers, u32 samples, GLuint fbo)
+    : AbstractFramebuffer(color_format, depth_format, width, height, layers, samples), m_fbo(fbo)
+{
+}
+
+OGLFramebuffer::~OGLFramebuffer()
+{
+  glDeleteFramebuffers(1, &m_fbo);
+}
+
+std::unique_ptr<OGLFramebuffer> OGLFramebuffer::Create(const OGLTexture* color_attachment,
+                                                       const OGLTexture* depth_attachment)
+{
+  if (!ValidateConfig(color_attachment, depth_attachment))
+    return nullptr;
+
+  const AbstractTextureFormat color_format =
+      color_attachment ? color_attachment->GetFormat() : AbstractTextureFormat::Undefined;
+  const AbstractTextureFormat depth_format =
+      depth_attachment ? depth_attachment->GetFormat() : AbstractTextureFormat::Undefined;
+  const OGLTexture* either_attachment = color_attachment ? color_attachment : depth_attachment;
+  const u32 width = either_attachment->GetWidth();
+  const u32 height = either_attachment->GetHeight();
+  const u32 layers = either_attachment->GetLayers();
+  const u32 samples = either_attachment->GetSamples();
+
+  GLuint fbo;
+  glGenFramebuffers(1, &fbo);
+  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+  if (color_attachment)
+  {
+    if (color_attachment->GetConfig().layers > 1)
+    {
+      glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           color_attachment->GetRawTexIdentifier(), 0);
+    }
+    else
+    {
+      glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                color_attachment->GetRawTexIdentifier(), 0, 0);
+    }
+  }
+
+  if (depth_attachment)
+  {
+    GLenum attachment = AbstractTexture::IsStencilFormat(depth_format) ?
+                            GL_DEPTH_STENCIL_ATTACHMENT :
+                            GL_DEPTH_ATTACHMENT;
+    if (depth_attachment->GetConfig().layers > 1)
+    {
+      glFramebufferTexture(GL_FRAMEBUFFER, attachment, depth_attachment->GetRawTexIdentifier(), 0);
+    }
+    else
+    {
+      glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment, depth_attachment->GetRawTexIdentifier(),
+                                0, 0);
+    }
+  }
+
+  DEBUG_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+  FramebufferManager::SetFramebuffer(0);
+  return std::make_unique<OGLFramebuffer>(color_format, depth_format, width, height, layers,
+                                          samples, fbo);
 }
 
 }  // namespace OGL

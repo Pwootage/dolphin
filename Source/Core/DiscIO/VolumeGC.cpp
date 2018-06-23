@@ -29,9 +29,9 @@
 
 namespace DiscIO
 {
-VolumeGC::VolumeGC(std::unique_ptr<BlobReader> reader) : m_pReader(std::move(reader))
+VolumeGC::VolumeGC(std::unique_ptr<BlobReader> reader) : m_reader(std::move(reader))
 {
-  _assert_(m_pReader);
+  ASSERT(m_reader);
 
   m_file_system = [this]() -> std::unique_ptr<FileSystem> {
     auto file_system = std::make_unique<FileSystemGCWii>(this, PARTITION_NONE);
@@ -45,14 +45,14 @@ VolumeGC::~VolumeGC()
 {
 }
 
-bool VolumeGC::Read(u64 _Offset, u64 _Length, u8* _pBuffer, const Partition& partition) const
+bool VolumeGC::Read(u64 offset, u64 length, u8* buffer, const Partition& partition) const
 {
   if (partition != PARTITION_NONE)
     return false;
 
   PrimeMemoryDumping::LogRead(_Offset, _Length);
 
-  return m_pReader->Read(_Offset, _Length, _pBuffer);
+  return m_reader->Read(offset, length, buffer);
 }
 
 const FileSystem* VolumeGC::GetFileSystem(const Partition& partition) const
@@ -64,29 +64,29 @@ std::string VolumeGC::GetGameID(const Partition& partition) const
 {
   static const std::string NO_UID("NO_UID");
 
-  char ID[6];
+  char id[6];
 
-  if (!Read(0, sizeof(ID), reinterpret_cast<u8*>(ID), partition))
+  if (!Read(0, sizeof(id), reinterpret_cast<u8*>(id), partition))
   {
     PanicAlertT("Failed to read unique ID from disc image");
     return NO_UID;
   }
 
-  return DecodeString(ID);
+  return DecodeString(id);
 }
 
 Region VolumeGC::GetRegion() const
 {
   const std::optional<u32> region_code = ReadSwapped<u32>(0x458, PARTITION_NONE);
   if (!region_code)
-    return Region::UNKNOWN_REGION;
+    return Region::Unknown;
   const Region region = static_cast<Region>(*region_code);
-  return region <= Region::PAL ? region : Region::UNKNOWN_REGION;
+  return region <= Region::PAL ? region : Region::Unknown;
 }
 
 Country VolumeGC::GetCountry(const Partition& partition) const
 {
-  // The 0 that we use as a default value is mapped to COUNTRY_UNKNOWN and UNKNOWN_REGION
+  // The 0 that we use as a default value is mapped to Country::Unknown and Region::Unknown
   const u8 country = ReadSwapped<u8>(3, partition).value_or(0);
   const Region region = GetRegion();
 
@@ -96,7 +96,7 @@ Country VolumeGC::GetCountry(const Partition& partition) const
   // W means Taiwan for Wii games, but on the GC, it's used for English-language Korean releases.
   // (There doesn't seem to be any pattern to which of E and W is used for Korean GC releases.)
   if (region == Region::NTSC_J && (country == 'E' || country == 'K' || country == 'W'))
-    return Country::COUNTRY_KOREA;
+    return Country::Korea;
 
   if (RegionSwitchGC(country) != region)
     return TypicalCountryForRegion(region);
@@ -106,11 +106,11 @@ Country VolumeGC::GetCountry(const Partition& partition) const
 
 std::string VolumeGC::GetMakerID(const Partition& partition) const
 {
-  char makerID[2];
-  if (!Read(0x4, 0x2, (u8*)&makerID, partition))
+  char maker_id[2];
+  if (!Read(0x4, sizeof(maker_id), reinterpret_cast<u8*>(&maker_id), partition))
     return std::string();
 
-  return DecodeString(makerID);
+  return DecodeString(maker_id);
 }
 
 std::optional<u16> VolumeGC::GetRevision(const Partition& partition) const
@@ -122,7 +122,7 @@ std::optional<u16> VolumeGC::GetRevision(const Partition& partition) const
 std::string VolumeGC::GetInternalName(const Partition& partition) const
 {
   char name[0x60];
-  if (Read(0x20, 0x60, (u8*)name, partition))
+  if (Read(0x20, sizeof(name), reinterpret_cast<u8*>(name), partition))
     return DecodeString(name);
 
   return "";
@@ -153,7 +153,7 @@ std::map<Language, std::string> VolumeGC::GetDescriptions() const
   return m_converted_banner->descriptions;
 }
 
-std::vector<u32> VolumeGC::GetBanner(int* width, int* height) const
+std::vector<u32> VolumeGC::GetBanner(u32* width, u32* height) const
 {
   *width = m_converted_banner->image_width;
   *height = m_converted_banner->image_height;
@@ -163,7 +163,7 @@ std::vector<u32> VolumeGC::GetBanner(int* width, int* height) const
 std::string VolumeGC::GetApploaderDate(const Partition& partition) const
 {
   char date[16];
-  if (!Read(0x2440, 0x10, (u8*)&date, partition))
+  if (!Read(0x2440, sizeof(date), reinterpret_cast<u8*>(&date), partition))
     return std::string();
 
   return DecodeString(date);
@@ -171,17 +171,17 @@ std::string VolumeGC::GetApploaderDate(const Partition& partition) const
 
 BlobType VolumeGC::GetBlobType() const
 {
-  return m_pReader->GetBlobType();
+  return m_reader->GetBlobType();
 }
 
 u64 VolumeGC::GetSize() const
 {
-  return m_pReader->GetDataSize();
+  return m_reader->GetDataSize();
 }
 
 u64 VolumeGC::GetRawSize() const
 {
-  return m_pReader->GetRawSize();
+  return m_reader->GetRawSize();
 }
 
 std::optional<u8> VolumeGC::GetDiscNumber(const Partition& partition) const
@@ -191,7 +191,7 @@ std::optional<u8> VolumeGC::GetDiscNumber(const Partition& partition) const
 
 Platform VolumeGC::GetVolumeType() const
 {
-  return Platform::GAMECUBE_DISC;
+  return Platform::GameCubeDisc;
 }
 
 VolumeGC::ConvertedGCBanner VolumeGC::LoadBannerFile() const
@@ -231,25 +231,24 @@ VolumeGC::ConvertedGCBanner VolumeGC::ExtractBannerInformation(const GCBanner& b
   ConvertedGCBanner banner;
 
   u32 number_of_languages = 0;
-  Language start_language = Language::LANGUAGE_UNKNOWN;
+  Language start_language = Language::Unknown;
 
   if (is_bnr1)  // NTSC
   {
-    bool is_japanese = GetRegion() == Region::NTSC_J;
     number_of_languages = 1;
-    start_language = is_japanese ? Language::LANGUAGE_JAPANESE : Language::LANGUAGE_ENGLISH;
+    start_language = GetRegion() == Region::NTSC_J ? Language::Japanese : Language::English;
   }
   else  // PAL
   {
     number_of_languages = 6;
-    start_language = Language::LANGUAGE_ENGLISH;
+    start_language = Language::English;
   }
 
   banner.image_width = GC_BANNER_WIDTH;
   banner.image_height = GC_BANNER_HEIGHT;
   banner.image_buffer = std::vector<u32>(GC_BANNER_WIDTH * GC_BANNER_HEIGHT);
-  ColorUtil::decode5A3image(banner.image_buffer.data(), banner_file.image, GC_BANNER_WIDTH,
-                            GC_BANNER_HEIGHT);
+  Common::Decode5A3Image(banner.image_buffer.data(), banner_file.image, GC_BANNER_WIDTH,
+                         GC_BANNER_HEIGHT);
 
   for (u32 i = 0; i < number_of_languages; ++i)
   {

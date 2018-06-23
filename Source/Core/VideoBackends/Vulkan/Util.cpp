@@ -112,6 +112,21 @@ VkFormat GetVkFormatForHostTextureFormat(AbstractTextureFormat format)
   case AbstractTextureFormat::BGRA8:
     return VK_FORMAT_B8G8R8A8_UNORM;
 
+  case AbstractTextureFormat::R16:
+    return VK_FORMAT_R16_UNORM;
+
+  case AbstractTextureFormat::D16:
+    return VK_FORMAT_D16_UNORM;
+
+  case AbstractTextureFormat::R32F:
+    return VK_FORMAT_R32_SFLOAT;
+
+  case AbstractTextureFormat::D32F:
+    return VK_FORMAT_D32_SFLOAT;
+
+  case AbstractTextureFormat::D32F_S8:
+    return VK_FORMAT_D32_SFLOAT_S8_UINT;
+
   default:
     PanicAlert("Unhandled texture format.");
     return VK_FORMAT_R8G8B8A8_UNORM;
@@ -382,7 +397,7 @@ void UtilityShaderDraw::CommitPSUniforms(size_t size)
 
 void UtilityShaderDraw::SetPushConstants(const void* data, size_t data_size)
 {
-  _assert_(static_cast<u32>(data_size) < PUSH_CONSTANT_BUFFER_SIZE);
+  ASSERT(static_cast<u32>(data_size) < PUSH_CONSTANT_BUFFER_SIZE);
 
   vkCmdPushConstants(m_command_buffer, m_pipeline_info.pipeline_layout,
                      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
@@ -399,8 +414,8 @@ void UtilityShaderDraw::SetPSSampler(size_t index, VkImageView view, VkSampler s
 void UtilityShaderDraw::SetPSTexelBuffer(VkBufferView view)
 {
   // Should only be used with the texture conversion pipeline layout.
-  _assert_(m_pipeline_info.pipeline_layout ==
-           g_object_cache->GetPipelineLayout(PIPELINE_LAYOUT_TEXTURE_CONVERSION));
+  ASSERT(m_pipeline_info.pipeline_layout ==
+         g_object_cache->GetPipelineLayout(PIPELINE_LAYOUT_TEXTURE_CONVERSION));
 
   m_ps_texel_buffer = view;
 }
@@ -566,36 +581,51 @@ void UtilityShaderDraw::BindDescriptors()
   if (m_vs_uniform_buffer.buffer != VK_NULL_HANDLE || m_ps_uniform_buffer.buffer != VK_NULL_HANDLE)
   {
     VkDescriptorSet set = g_command_buffer_mgr->AllocateDescriptorSet(
-        g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_LAYOUT_UNIFORM_BUFFERS));
+        g_object_cache->GetDescriptorSetLayout(DESCRIPTOR_SET_LAYOUT_PER_STAGE_UNIFORM_BUFFERS));
     if (set == VK_NULL_HANDLE)
       PanicAlert("Failed to allocate descriptor set for utility draw");
-
-    set_writes[num_set_writes++] = {
-        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, UBO_DESCRIPTOR_SET_BINDING_VS, 0, 1,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, nullptr,
-        (m_vs_uniform_buffer.buffer != VK_NULL_HANDLE) ? &m_vs_uniform_buffer :
-                                                         &dummy_uniform_buffer,
-        nullptr};
 
     set_writes[num_set_writes++] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                                     nullptr,
                                     set,
-                                    UBO_DESCRIPTOR_SET_BINDING_GS,
+                                    UBO_DESCRIPTOR_SET_BINDING_VS,
                                     0,
                                     1,
                                     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
                                     nullptr,
-                                    &dummy_uniform_buffer,
+                                    (m_vs_uniform_buffer.buffer != VK_NULL_HANDLE) ?
+                                        &m_vs_uniform_buffer :
+                                        &dummy_uniform_buffer,
                                     nullptr};
 
-    set_writes[num_set_writes++] = {
-        VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, UBO_DESCRIPTOR_SET_BINDING_PS, 0, 1,
-        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, nullptr,
-        (m_ps_uniform_buffer.buffer != VK_NULL_HANDLE) ? &m_ps_uniform_buffer :
-                                                         &dummy_uniform_buffer,
-        nullptr};
+    if (g_vulkan_context->SupportsGeometryShaders())
+    {
+      set_writes[num_set_writes++] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                      nullptr,
+                                      set,
+                                      UBO_DESCRIPTOR_SET_BINDING_GS,
+                                      0,
+                                      1,
+                                      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+                                      nullptr,
+                                      &dummy_uniform_buffer,
+                                      nullptr};
+    }
 
-    bind_descriptor_sets[DESCRIPTOR_SET_LAYOUT_UNIFORM_BUFFERS] = set;
+    set_writes[num_set_writes++] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                    nullptr,
+                                    set,
+                                    UBO_DESCRIPTOR_SET_BINDING_PS,
+                                    0,
+                                    1,
+                                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+                                    nullptr,
+                                    (m_ps_uniform_buffer.buffer != VK_NULL_HANDLE) ?
+                                        &m_ps_uniform_buffer :
+                                        &dummy_uniform_buffer,
+                                    nullptr};
+
+    bind_descriptor_sets[DESCRIPTOR_SET_BIND_POINT_UNIFORM_BUFFERS] = set;
   }
 
   // PS samplers
@@ -747,7 +777,7 @@ void ComputeShaderDispatcher::CommitUniformBuffer(size_t size)
 
 void ComputeShaderDispatcher::SetPushConstants(const void* data, size_t data_size)
 {
-  _assert_(static_cast<u32>(data_size) < PUSH_CONSTANT_BUFFER_SIZE);
+  ASSERT(static_cast<u32>(data_size) < PUSH_CONSTANT_BUFFER_SIZE);
 
   vkCmdPushConstants(m_command_buffer, m_pipeline_info.pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT,
                      0, static_cast<u32>(data_size), data);

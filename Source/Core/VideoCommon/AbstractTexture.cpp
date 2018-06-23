@@ -15,15 +15,13 @@ AbstractTexture::AbstractTexture(const TextureConfig& c) : m_config(c)
 {
 }
 
-AbstractTexture::~AbstractTexture() = default;
-
 bool AbstractTexture::Save(const std::string& filename, unsigned int level)
 {
   // We can't dump compressed textures currently (it would mean drawing them to a RGBA8
   // framebuffer, and saving that). TextureCache does not call Save for custom textures
   // anyway, so this is fine for now.
-  _assert_(!IsCompressedFormat(m_config.format));
-  _assert_(level < m_config.levels);
+  ASSERT(!IsCompressedFormat(m_config.format));
+  ASSERT(level < m_config.levels);
 
   // Determine dimensions of image we want to save.
   u32 level_width = std::max(1u, m_config.width >> level);
@@ -31,7 +29,7 @@ bool AbstractTexture::Save(const std::string& filename, unsigned int level)
 
   // Use a temporary staging texture for the download. Certainly not optimal,
   // but this is not a frequently-executed code path..
-  TextureConfig readback_texture_config(level_width, level_height, 1, 1,
+  TextureConfig readback_texture_config(level_width, level_height, 1, 1, 1,
                                         AbstractTextureFormat::RGBA8, false);
   auto readback_texture =
       g_renderer->CreateStagingTexture(StagingTextureType::Readback, readback_texture_config);
@@ -66,6 +64,25 @@ bool AbstractTexture::IsCompressedFormat(AbstractTextureFormat format)
   }
 }
 
+bool AbstractTexture::IsDepthFormat(AbstractTextureFormat format)
+{
+  switch (format)
+  {
+  case AbstractTextureFormat::D16:
+  case AbstractTextureFormat::D32F:
+  case AbstractTextureFormat::D32F_S8:
+    return true;
+
+  default:
+    return false;
+  }
+}
+
+bool AbstractTexture::IsStencilFormat(AbstractTextureFormat format)
+{
+  return format == AbstractTextureFormat::D32F_S8;
+}
+
 size_t AbstractTexture::CalculateStrideForFormat(AbstractTextureFormat format, u32 row_length)
 {
   switch (format)
@@ -76,9 +93,16 @@ size_t AbstractTexture::CalculateStrideForFormat(AbstractTextureFormat format, u
   case AbstractTextureFormat::DXT5:
   case AbstractTextureFormat::BPTC:
     return static_cast<size_t>(std::max(1u, row_length / 4)) * 16;
+  case AbstractTextureFormat::R16:
+  case AbstractTextureFormat::D16:
+    return static_cast<size_t>(row_length) * 2;
   case AbstractTextureFormat::RGBA8:
   case AbstractTextureFormat::BGRA8:
+  case AbstractTextureFormat::R32F:
+  case AbstractTextureFormat::D32F:
     return static_cast<size_t>(row_length) * 4;
+  case AbstractTextureFormat::D32F_S8:
+    return static_cast<size_t>(row_length) * 8;
   default:
     PanicAlert("Unhandled texture format.");
     return 0;
@@ -95,9 +119,16 @@ size_t AbstractTexture::GetTexelSizeForFormat(AbstractTextureFormat format)
   case AbstractTextureFormat::DXT5:
   case AbstractTextureFormat::BPTC:
     return 16;
+  case AbstractTextureFormat::R16:
+  case AbstractTextureFormat::D16:
+    return 2;
   case AbstractTextureFormat::RGBA8:
   case AbstractTextureFormat::BGRA8:
+  case AbstractTextureFormat::R32F:
+  case AbstractTextureFormat::D32F:
     return 4;
+  case AbstractTextureFormat::D32F_S8:
+    return 8;
   default:
     PanicAlert("Unhandled texture format.");
     return 0;

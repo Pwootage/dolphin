@@ -12,15 +12,11 @@
 #include "Common/Swap.h"
 #include "Core/HW/Memmap.h"
 
-namespace IOS
-{
-namespace HLE
-{
-namespace USB
+namespace IOS::HLE::USB
 {
 std::unique_ptr<u8[]> TransferCommand::MakeBuffer(const size_t size) const
 {
-  _assert_msg_(IOS_USB, data_address != 0, "Invalid data_address");
+  ASSERT_MSG(IOS_USB, data_address != 0, "Invalid data_address");
   auto buffer = std::make_unique<u8[]>(size);
   Memory::CopyFromEmu(buffer.get(), data_address, size);
   return buffer;
@@ -28,7 +24,7 @@ std::unique_ptr<u8[]> TransferCommand::MakeBuffer(const size_t size) const
 
 void TransferCommand::FillBuffer(const u8* src, const size_t size) const
 {
-  _assert_msg_(IOS_USB, size == 0 || data_address != 0, "Invalid data_address");
+  ASSERT_MSG(IOS_USB, size == 0 || data_address != 0, "Invalid data_address");
   Memory::CopyToEmu(data_address, src, size);
 }
 
@@ -95,6 +91,4 @@ std::string Device::GetErrorName(const int error_code) const
 {
   return StringFromFormat("unknown error %d", error_code);
 }
-}  // namespace USB
-}  // namespace HLE
-}  // namespace IOS
+}  // namespace IOS::HLE::USB

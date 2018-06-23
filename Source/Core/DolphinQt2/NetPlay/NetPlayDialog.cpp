@@ -4,6 +4,7 @@
 
 #include "DolphinQt2/NetPlay/NetPlayDialog.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
@@ -11,24 +12,30 @@
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QTextEdit>
+#include <QSplitter>
+#include <QTableWidget>
+#include <QTextBrowser>
+#include <QToolButton>
 
 #include <sstream>
 
 #include "Common/CommonPaths.h"
 #include "Common/Config/Config.h"
 #include "Common/TraversalClient.h"
+
 #include "Core/Config/SYSCONFSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/NetPlayServer.h"
+
 #include "DolphinQt2/GameList/GameList.h"
 #include "DolphinQt2/NetPlay/GameListDialog.h"
 #include "DolphinQt2/NetPlay/MD5Dialog.h"
@@ -36,6 +43,7 @@
 #include "DolphinQt2/QtUtils/QueueOnObject.h"
 #include "DolphinQt2/QtUtils/RunOnObject.h"
 #include "DolphinQt2/Settings.h"
+
 #include "VideoCommon/VideoConfig.h"
 
 NetPlayDialog::NetPlayDialog(QWidget* parent)
@@ -43,7 +51,7 @@ NetPlayDialog::NetPlayDialog(QWidget* parent)
 {
   setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
 
-  setWindowTitle(tr("Dolphin NetPlay"));
+  setWindowTitle(tr("NetPlay"));
 
   m_pad_mapping = new PadMappingDialog(this);
   m_md5_dialog = new MD5Dialog(this);
@@ -52,13 +60,26 @@ NetPlayDialog::NetPlayDialog(QWidget* parent)
   CreatePlayersLayout();
   CreateMainLayout();
   ConnectWidgets();
+
+  auto& settings = Settings::Instance().GetQSettings();
+
+  restoreGeometry(settings.value(QStringLiteral("netplaydialog/geometry")).toByteArray());
+  m_splitter->restoreState(settings.value(QStringLiteral("netplaydialog/splitter")).toByteArray());
+}
+
+NetPlayDialog::~NetPlayDialog()
+{
+  auto& settings = Settings::Instance().GetQSettings();
+
+  settings.setValue(QStringLiteral("netplaydialog/geometry"), saveGeometry());
+  settings.setValue(QStringLiteral("netplaydialog/splitter"), m_splitter->saveState());
 }
 
 void NetPlayDialog::CreateMainLayout()
 {
   m_main_layout = new QGridLayout;
   m_game_button = new QPushButton;
-  m_md5_box = new QComboBox;
+  m_md5_button = new QToolButton;
   m_start_button = new QPushButton(tr("Start"));
   m_buffer_size_box = new QSpinBox;
   m_save_sd_box = new QCheckBox(tr("Write save/SD data"));
@@ -66,18 +87,44 @@ void NetPlayDialog::CreateMainLayout()
   m_record_input_box = new QCheckBox(tr("Record inputs"));
   m_buffer_label = new QLabel(tr("Buffer:"));
   m_quit_button = new QPushButton(tr("Quit"));
+  m_splitter = new QSplitter(Qt::Horizontal);
 
   m_game_button->setDefault(false);
   m_game_button->setAutoDefault(false);
 
-  for (const QString& text :
-       {tr("MD5 Check:"), tr("Current game"), tr("Other game"), tr("SD card")})
-    m_md5_box->addItem(text);
+  auto* default_button = new QAction(tr("Calculate MD5 hash"), m_md5_button);
+
+  auto* menu = new QMenu(this);
+
+  auto* other_game_button = new QAction(tr("Other game"), this);
+  auto* sdcard_button = new QAction(tr("SD Card"), this);
+
+  menu->addAction(other_game_button);
+  menu->addAction(sdcard_button);
+
+  connect(default_button, &QAction::triggered,
+          [this] { Settings::Instance().GetNetPlayServer()->ComputeMD5(m_current_game); });
+  connect(other_game_button, &QAction::triggered, [this] {
+    GameListDialog gld(this);
+
+    if (gld.exec() == QDialog::Accepted)
+    {
+      Settings::Instance().GetNetPlayServer()->ComputeMD5(gld.GetSelectedUniqueID().toStdString());
+    }
+  });
+  connect(sdcard_button, &QAction::triggered,
+          [] { Settings::Instance().GetNetPlayServer()->ComputeMD5(WII_SDCARD); });
+
+  m_md5_button->setDefaultAction(default_button);
+  m_md5_button->setPopupMode(QToolButton::MenuButtonPopup);
+  m_md5_button->setMenu(menu);
 
   m_main_layout->addWidget(m_game_button, 0, 0);
-  m_main_layout->addWidget(m_md5_box, 0, 1);
-  m_main_layout->addWidget(m_chat_box, 1, 0);
-  m_main_layout->addWidget(m_players_box, 1, 1);
+  m_main_layout->addWidget(m_md5_button, 0, 1);
+  m_main_layout->addWidget(m_splitter, 1, 0, 1, -1);
+
+  m_splitter->addWidget(m_chat_box);
+  m_splitter->addWidget(m_players_box);
 
   auto* options_widget = new QHBoxLayout;
 
@@ -96,7 +143,7 @@ void NetPlayDialog::CreateMainLayout()
 void NetPlayDialog::CreateChatLayout()
 {
   m_chat_box = new QGroupBox(tr("Chat"));
-  m_chat_edit = new QTextEdit;
+  m_chat_edit = new QTextBrowser;
   m_chat_type_edit = new QLineEdit;
   m_chat_send_button = new QPushButton(tr("Send"));
 
@@ -120,9 +167,17 @@ void NetPlayDialog::CreatePlayersLayout()
   m_room_box = new QComboBox;
   m_hostcode_label = new QLabel;
   m_hostcode_action_button = new QPushButton(tr("Copy"));
-  m_players_list = new QListWidget;
+  m_players_list = new QTableWidget;
   m_kick_button = new QPushButton(tr("Kick Player"));
   m_assign_ports_button = new QPushButton(tr("Assign Controller Ports"));
+
+  m_players_list->setColumnCount(5);
+  m_players_list->verticalHeader()->hide();
+  m_players_list->setSelectionBehavior(QAbstractItemView::SelectRows);
+  m_players_list->horizontalHeader()->setStretchLastSection(true);
+
+  for (int i = 0; i < 4; i++)
+    m_players_list->horizontalHeader()->setSectionResizeMode(i, QHeaderView::ResizeToContents);
 
   auto* layout = new QGridLayout;
 
@@ -147,7 +202,7 @@ void NetPlayDialog::ConnectWidgets()
     else
       QApplication::clipboard()->setText(m_hostcode_label->text());
   });
-  connect(m_players_list, &QListWidget::itemSelectionChanged, [this] {
+  connect(m_players_list, &QTableWidget::itemSelectionChanged, [this] {
     int row = m_players_list->currentRow();
     m_kick_button->setEnabled(row > 0 &&
                               !m_players_list->currentItem()->data(Qt::UserRole).isNull());
@@ -170,14 +225,15 @@ void NetPlayDialog::ConnectWidgets()
   // Other
   connect(m_buffer_size_box, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged),
           [this](int value) {
+            if (value == m_buffer_size)
+              return;
+
             if (Settings::Instance().GetNetPlayServer() != nullptr)
               Settings::Instance().GetNetPlayServer()->AdjustPadBufferSize(value);
           });
 
   connect(m_start_button, &QPushButton::clicked, this, &NetPlayDialog::OnStart);
   connect(m_quit_button, &QPushButton::clicked, this, &NetPlayDialog::reject);
-  connect(m_md5_box, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this,
-          &NetPlayDialog::OnMD5Combo);
 
   connect(m_game_button, &QPushButton::clicked, [this] {
     GameListDialog gld(this);
@@ -201,8 +257,8 @@ void NetPlayDialog::OnChat()
     Settings::Instance().GetNetPlayClient()->SendChatMessage(msg);
     m_chat_type_edit->clear();
 
-    DisplayMessage(QStringLiteral("%1: %2").arg(QString::fromStdString(m_nickname),
-                                                QString::fromStdString(msg)),
+    DisplayMessage(QStringLiteral("%1: %2").arg(QString::fromStdString(m_nickname).toHtmlEscaped(),
+                                                QString::fromStdString(msg).toHtmlEscaped()),
                    "blue");
   });
 }
@@ -222,7 +278,7 @@ void NetPlayDialog::OnStart()
   // Copy all relevant settings
   SConfig& instance = SConfig::GetInstance();
   settings.m_CPUthread = instance.bCPUThread;
-  settings.m_CPUcore = instance.iCPUCore;
+  settings.m_CPUcore = instance.cpu_core;
   settings.m_EnableCheats = instance.bEnableCheats;
   settings.m_SelectedLanguage = instance.SelectedLanguage;
   settings.m_OverrideGCLanguage = instance.bOverrideGCLanguage;
@@ -241,40 +297,6 @@ void NetPlayDialog::OnStart()
   Settings::Instance().GetNetPlayServer()->StartGame();
 }
 
-void NetPlayDialog::OnMD5Combo(int index)
-{
-  std::string identifier;
-
-  switch (index)
-  {
-  case 0:
-    return;
-  case 1:  // Current game
-    identifier = m_current_game;
-    break;
-  case 2:  // Other game
-  {
-    GameListDialog gld(this);
-
-    if (gld.exec() == QDialog::Accepted)
-    {
-      identifier = gld.GetSelectedUniqueID().toStdString();
-      break;
-    }
-    else
-    {
-      m_md5_box->setCurrentIndex(0);
-      return;
-    }
-  }
-  case 3:  // SD Card
-    identifier = WII_SDCARD;
-    break;
-  }
-
-  Settings::Instance().GetNetPlayServer()->ComputeMD5(identifier);
-}
-
 void NetPlayDialog::reject()
 {
   if (QMessageBox::question(this, tr("Confirmation"),
@@ -288,6 +310,7 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
 {
   m_nickname = nickname;
   m_use_traversal = use_traversal;
+  m_buffer_size = 0;
 
   m_room_box->clear();
   m_chat_edit->clear();
@@ -301,7 +324,10 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
       m_room_box->addItem(tr("Room ID"));
 
     for (const auto& iface : Settings::Instance().GetNetPlayServer()->GetInterfaceSet())
-      m_room_box->addItem(QString::fromStdString(iface));
+    {
+      const auto interface = QString::fromStdString(iface);
+      m_room_box->addItem(iface == "!local!" ? tr("Local") : interface, interface);
+    }
   }
 
   m_start_button->setHidden(!is_hosting);
@@ -311,7 +337,7 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
   m_buffer_label->setHidden(!is_hosting);
   m_kick_button->setHidden(!is_hosting);
   m_assign_ports_button->setHidden(!is_hosting);
-  m_md5_box->setHidden(!is_hosting);
+  m_md5_button->setHidden(!is_hosting);
   m_room_box->setHidden(!is_hosting);
   m_hostcode_label->setHidden(!is_hosting);
   m_hostcode_action_button->setHidden(!is_hosting);
@@ -324,55 +350,86 @@ void NetPlayDialog::show(std::string nickname, bool use_traversal)
 
 void NetPlayDialog::UpdateGUI()
 {
-  // Update player list
-  std::vector<int> player_ids;
-  std::string tmp;
+  auto* client = Settings::Instance().GetNetPlayClient();
 
-  Settings::Instance().GetNetPlayClient()->GetPlayerList(tmp, player_ids);
+  // Update Player List
+  const auto players = client->GetPlayers();
+  const auto player_count = static_cast<int>(players.size());
 
-  std::istringstream ss(tmp);
-
-  int row = m_players_list->currentRow();
-  unsigned int i = 0;
+  int selection_pid = m_players_list->currentItem() ?
+                          m_players_list->currentItem()->data(Qt::UserRole).toInt() :
+                          -1;
 
   m_players_list->clear();
+  m_players_list->setHorizontalHeaderLabels(
+      {tr("Player"), tr("Game Status"), tr("Ping"), tr("Mapping"), tr("Revision")});
+  m_players_list->setRowCount(player_count);
 
-  while (std::getline(ss, tmp))
-  {
-    auto text = QString::fromStdString(tmp);
-    if (!text.isEmpty())
+  const auto get_mapping_string = [](const Player* player, const PadMappingArray& array) {
+    std::string str;
+    for (size_t i = 0; i < array.size(); i++)
     {
-      QListWidgetItem* item = new QListWidgetItem(text);
-
-      if (player_ids.size() > i && !text.startsWith(QStringLiteral("Ping:")) &&
-          !text.startsWith(QStringLiteral("Status:")))
-      {
-        item->setData(Qt::UserRole, player_ids[i]);
-        i++;
-      }
-      m_players_list->addItem(item);
+      if (player->pid == array[i])
+        str += std::to_string(i + 1);
+      else
+        str += '-';
     }
-  }
 
-  if (row != -1)
-    m_players_list->setCurrentRow(row, QItemSelectionModel::SelectCurrent);
+    return '|' + str + '|';
+  };
+
+  static const std::map<PlayerGameStatus, QString> player_status{
+      {PlayerGameStatus::Ok, tr("OK")}, {PlayerGameStatus::NotFound, tr("Not Found")}};
+
+  for (int i = 0; i < player_count; i++)
+  {
+    const auto* p = players[i];
+
+    auto* name_item = new QTableWidgetItem(QString::fromStdString(p->name));
+    auto* status_item = new QTableWidgetItem(player_status.count(p->game_status) ?
+                                                 player_status.at(p->game_status) :
+                                                 QStringLiteral("?"));
+    auto* ping_item = new QTableWidgetItem(QStringLiteral("%1 ms").arg(p->ping));
+    auto* mapping_item = new QTableWidgetItem(
+        QString::fromStdString(get_mapping_string(p, client->GetPadMapping()) +
+                               get_mapping_string(p, client->GetWiimoteMapping())));
+    auto* revision_item = new QTableWidgetItem(QString::fromStdString(p->revision));
+
+    for (auto* item : {name_item, status_item, ping_item, mapping_item, revision_item})
+    {
+      item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+      item->setData(Qt::UserRole, static_cast<int>(p->pid));
+    }
+
+    m_players_list->setItem(i, 0, name_item);
+    m_players_list->setItem(i, 1, status_item);
+    m_players_list->setItem(i, 2, ping_item);
+    m_players_list->setItem(i, 3, mapping_item);
+    m_players_list->setItem(i, 4, revision_item);
+
+    if (p->pid == selection_pid)
+      m_players_list->selectRow(i);
+  }
 
   // Update Room ID / IP label
   if (m_use_traversal && m_room_box->currentIndex() == 0)
   {
-    switch (g_TraversalClient->m_State)
+    switch (g_TraversalClient->GetState())
     {
     case TraversalClient::Connecting:
       m_hostcode_label->setText(tr("..."));
       m_hostcode_action_button->setEnabled(false);
       break;
     case TraversalClient::Connected:
-      m_hostcode_label->setText(QString::fromStdString(
-          std::string(g_TraversalClient->m_HostId.data(), g_TraversalClient->m_HostId.size())));
+    {
+      const auto host_id = g_TraversalClient->GetHostID();
+      m_hostcode_label->setText(
+          QString::fromStdString(std::string(host_id.begin(), host_id.end())));
       m_hostcode_action_button->setEnabled(true);
       m_hostcode_action_button->setText(tr("Copy"));
       m_is_copy_button_retry = false;
       break;
+    }
     case TraversalClient::Failure:
       m_hostcode_label->setText(tr("Error"));
       m_hostcode_action_button->setText(tr("Retry"));
@@ -385,7 +442,7 @@ void NetPlayDialog::UpdateGUI()
   {
     m_hostcode_label->setText(
         QString::fromStdString(Settings::Instance().GetNetPlayServer()->GetInterfaceHost(
-            m_room_box->currentText().toStdString())));
+            m_room_box->currentData().toString().toStdString())));
     m_hostcode_action_button->setText(tr("Copy"));
     m_hostcode_action_button->setEnabled(true);
   }
@@ -436,7 +493,7 @@ void NetPlayDialog::DisplayMessage(const QString& msg, const std::string& color,
 
 void NetPlayDialog::AppendChat(const std::string& msg)
 {
-  DisplayMessage(QString::fromStdString(msg), "");
+  DisplayMessage(QString::fromStdString(msg).toHtmlEscaped(), "");
 }
 
 void NetPlayDialog::OnMsgChangeGame(const std::string& title)
@@ -446,7 +503,7 @@ void NetPlayDialog::OnMsgChangeGame(const std::string& title)
     m_game_button->setText(qtitle);
     m_current_game = title;
   });
-  DisplayMessage(tr("Game changed to \"%1\"").arg(qtitle), "pink");
+  DisplayMessage(tr("Game changed to \"%1\"").arg(qtitle), "magenta");
 }
 
 void NetPlayDialog::GameStatusChanged(bool running)
@@ -484,7 +541,9 @@ void NetPlayDialog::OnMsgStopGame()
 void NetPlayDialog::OnPadBufferChanged(u32 buffer)
 {
   QueueOnObject(this, [this, buffer] { m_buffer_size_box->setValue(buffer); });
-  DisplayMessage(tr("Buffer size changed to %1").arg(buffer), "gray");
+  DisplayMessage(tr("Buffer size changed to %1").arg(buffer), "");
+
+  m_buffer_size = static_cast<int>(buffer);
 }
 
 void NetPlayDialog::OnDesync(u32 frame, const std::string& player)
@@ -524,26 +583,31 @@ void NetPlayDialog::OnTraversalError(TraversalClient::FailureReason error)
 
 bool NetPlayDialog::IsRecording()
 {
-  return RunOnObject(m_record_input_box, &QCheckBox::isChecked);
+  std::optional<bool> is_recording = RunOnObject(m_record_input_box, &QCheckBox::isChecked);
+  if (is_recording)
+    return *is_recording;
+  return false;
 }
 
 std::string NetPlayDialog::FindGame(const std::string& game)
 {
-  return RunOnObject(this, [this, game] {
+  std::optional<std::string> path = RunOnObject(this, [this, game] {
     for (int i = 0; i < m_game_list_model->rowCount(QModelIndex()); i++)
     {
-      if (m_game_list_model->GetUniqueID(i).toStdString() == game)
+      if (m_game_list_model->GetUniqueIdentifier(i).toStdString() == game)
         return m_game_list_model->GetPath(i).toStdString();
     }
     return std::string("");
   });
+  if (path)
+    return *path;
+  return std::string("");
 }
 
 void NetPlayDialog::ShowMD5Dialog(const std::string& file_identifier)
 {
   QueueOnObject(this, [this, file_identifier] {
-    m_md5_box->setEnabled(false);
-    m_md5_box->setCurrentIndex(0);
+    m_md5_button->setEnabled(false);
 
     if (m_md5_dialog->isVisible())
       m_md5_dialog->close();
@@ -564,7 +628,7 @@ void NetPlayDialog::SetMD5Result(int pid, const std::string& result)
 {
   QueueOnObject(this, [this, pid, result] {
     m_md5_dialog->SetResult(pid, result);
-    m_md5_box->setEnabled(true);
+    m_md5_button->setEnabled(true);
   });
 }
 
@@ -572,6 +636,6 @@ void NetPlayDialog::AbortMD5()
 {
   QueueOnObject(this, [this] {
     m_md5_dialog->close();
-    m_md5_box->setEnabled(true);
+    m_md5_button->setEnabled(true);
   });
 }
