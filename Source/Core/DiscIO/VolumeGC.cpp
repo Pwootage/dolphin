@@ -50,7 +50,7 @@ bool VolumeGC::Read(u64 offset, u64 length, u8* buffer, const Partition& partiti
   if (partition != PARTITION_NONE)
     return false;
 
-  PrimeMemoryDumping::LogRead(_Offset, _Length);
+  PrimeMemoryDumping::LogRead(offset, length);
 
   return m_reader->Read(offset, length, buffer);
 }

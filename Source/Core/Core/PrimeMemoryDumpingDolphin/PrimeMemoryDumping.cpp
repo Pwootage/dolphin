@@ -13,7 +13,7 @@
 #include <Common/Timer.h>
 #include <VideoCommon/OnScreenDisplay.h>
 #include <VideoCommon/RenderBase.h>
-#include "Core/PowerPC/PowerPC.h"
+#include "Core/PowerPC/MMU.h"
 #include "SFML/Network.hpp"
 #include "Common/MsgHandler.h"
 #include "PrimeMemoryDumping.h"
@@ -119,7 +119,7 @@ namespace PrimeMemoryDumping {
         << setw(7) << rotationalSpeed[1] << "y "
         << setw(7) << rotationalSpeed[2] << "z "
         << setw(7) << veclen(rotationalSpeed) << " total" << endl;
-      g_renderer->RenderText(msg.str(), 10, 20, 0xFF33FFFF);
+//      g_renderer->RenderText(msg.str(), 10, 20, 0xFF33FFFF);
     }
     void CalcMessages() {
       CGameGlobalObjects global(CGameGlobalObjects::LOCATION);

@@ -1,5 +1,5 @@
 #include <cstdint>
-#include <Core/PowerPC/PowerPC.h>
+#include <Core/PowerPC/MMU.h>
 #include "../PrimeMemoryDumping/common/GameMemory.h"
 
 #define FIX_ADDR(addr) ((addr) | 0x80000000)
