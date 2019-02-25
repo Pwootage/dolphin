@@ -1,4 +1,4 @@
-if(NOT(USE_X11 OR ENABLE_HEADLESS))
+if(NOT((ENABLE_X11 AND X11_FOUND) OR ENABLE_HEADLESS))
   return()
 endif()
 
@@ -14,6 +14,10 @@ PRIVATE
   uicommon
   cpp-optparse
 )
+
+if(USE_DISCORD_PRESENCE)
+  target_compile_definitions(dolphin-nogui PRIVATE -DUSE_DISCORD_PRESENCE)
+endif()
 
 set(CPACK_PACKAGE_EXECUTABLES ${CPACK_PACKAGE_EXECUTABLES} dolphin-nogui)
 install(TARGETS dolphin-nogui RUNTIME DESTINATION ${bindir})

@@ -1,6 +1,8 @@
 add_library(inputcommon
   InputConfig.cpp
+  InputProfile.cpp
   ControllerEmu/ControllerEmu.cpp
+  ControllerEmu/StickGate.cpp
   ControllerEmu/Control/Control.cpp
   ControllerEmu/Control/Input.cpp
   ControllerEmu/Control/Output.cpp

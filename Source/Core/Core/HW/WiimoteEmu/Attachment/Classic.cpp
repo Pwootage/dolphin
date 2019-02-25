@@ -21,26 +21,6 @@ namespace WiimoteEmu
 {
 constexpr std::array<u8, 6> classic_id{{0x00, 0x00, 0xa4, 0x20, 0x01, 0x01}};
 
-// Classic Controller calibration
-constexpr std::array<u8, 0x10> classic_calibration{{
-    0xff,
-    0x00,
-    0x80,
-    0xff,
-    0x00,
-    0x80,
-    0xff,
-    0x00,
-    0x80,
-    0xff,
-    0x00,
-    0x80,
-    0x00,
-    0x00,
-    0x51,
-    0xa6,
-}};
-
 constexpr std::array<u16, 9> classic_button_bitmasks{{
     Classic::BUTTON_A,
     Classic::BUTTON_B,
@@ -103,10 +83,11 @@ Classic::Classic(ExtensionReg& reg) : Attachment(_trans("Classic"), reg)
   }
 
   // sticks
-  groups.emplace_back(m_left_stick = new ControllerEmu::AnalogStick(
-                          _trans("Left Stick"), DEFAULT_ATTACHMENT_STICK_RADIUS));
-  groups.emplace_back(m_right_stick = new ControllerEmu::AnalogStick(
-                          _trans("Right Stick"), DEFAULT_ATTACHMENT_STICK_RADIUS));
+  constexpr auto gate_radius = ControlState(STICK_GATE_RADIUS) / LEFT_STICK_RADIUS;
+  groups.emplace_back(m_left_stick =
+                          new ControllerEmu::OctagonAnalogStick(_trans("Left Stick"), gate_radius));
+  groups.emplace_back(
+      m_right_stick = new ControllerEmu::OctagonAnalogStick(_trans("Right Stick"), gate_radius));
 
   // triggers
   groups.emplace_back(m_triggers = new ControllerEmu::MixedTriggers(_trans("Triggers")));
@@ -124,9 +105,35 @@ Classic::Classic(ExtensionReg& reg) : Attachment(_trans("Classic"), reg)
         new ControllerEmu::Input(ControllerEmu::Translate, named_direction));
   }
 
-  // Set up register
-  m_calibration = classic_calibration;
   m_id = classic_id;
+
+  // Build calibration data:
+  m_calibration = {{
+      // Left Stick X max,min,center:
+      CAL_STICK_CENTER + CAL_STICK_RANGE,
+      CAL_STICK_CENTER - CAL_STICK_RANGE,
+      CAL_STICK_CENTER,
+      // Left Stick Y max,min,center:
+      CAL_STICK_CENTER + CAL_STICK_RANGE,
+      CAL_STICK_CENTER - CAL_STICK_RANGE,
+      CAL_STICK_CENTER,
+      // Right Stick X max,min,center:
+      CAL_STICK_CENTER + CAL_STICK_RANGE,
+      CAL_STICK_CENTER - CAL_STICK_RANGE,
+      CAL_STICK_CENTER,
+      // Right Stick Y max,min,center:
+      CAL_STICK_CENTER + CAL_STICK_RANGE,
+      CAL_STICK_CENTER - CAL_STICK_RANGE,
+      CAL_STICK_CENTER,
+      // Left/Right trigger range: (assumed based on real calibration data values)
+      LEFT_TRIGGER_RANGE,
+      RIGHT_TRIGGER_RANGE,
+      // 2 checksum bytes calculated below:
+      0x00,
+      0x00,
+  }};
+
+  UpdateCalibrationDataChecksum(m_calibration);
 }
 
 void Classic::GetState(u8* const data)
@@ -137,29 +144,27 @@ void Classic::GetState(u8* const data)
 
   // left stick
   {
-    ControlState x, y;
-    m_left_stick->GetState(&x, &y);
+    const ControllerEmu::AnalogStick::StateData left_stick_state = m_left_stick->GetState();
 
-    classic_data.regular_data.lx =
-        static_cast<u8>(Classic::LEFT_STICK_CENTER_X + (x * Classic::LEFT_STICK_RADIUS));
-    classic_data.regular_data.ly =
-        static_cast<u8>(Classic::LEFT_STICK_CENTER_Y + (y * Classic::LEFT_STICK_RADIUS));
+    classic_data.regular_data.lx = static_cast<u8>(
+        Classic::LEFT_STICK_CENTER_X + (left_stick_state.x * Classic::LEFT_STICK_RADIUS));
+    classic_data.regular_data.ly = static_cast<u8>(
+        Classic::LEFT_STICK_CENTER_Y + (left_stick_state.y * Classic::LEFT_STICK_RADIUS));
   }
 
   // right stick
   {
-    ControlState x, y;
-    m_right_stick->GetState(&x, &y);
+    const ControllerEmu::AnalogStick::StateData right_stick_data = m_right_stick->GetState();
 
-    const u8 x_ =
-        static_cast<u8>(Classic::RIGHT_STICK_CENTER_X + (x * Classic::RIGHT_STICK_RADIUS));
-    const u8 y_ =
-        static_cast<u8>(Classic::RIGHT_STICK_CENTER_Y + (y * Classic::RIGHT_STICK_RADIUS));
+    const u8 x = static_cast<u8>(Classic::RIGHT_STICK_CENTER_X +
+                                 (right_stick_data.x * Classic::RIGHT_STICK_RADIUS));
+    const u8 y = static_cast<u8>(Classic::RIGHT_STICK_CENTER_Y +
+                                 (right_stick_data.y * Classic::RIGHT_STICK_RADIUS));
 
-    classic_data.rx1 = x_;
-    classic_data.rx2 = x_ >> 1;
-    classic_data.rx3 = x_ >> 3;
-    classic_data.ry = y_;
+    classic_data.rx1 = x;
+    classic_data.rx2 = x >> 1;
+    classic_data.rx3 = x >> 3;
+    classic_data.ry = y;
   }
 
   // triggers
@@ -215,4 +220,4 @@ ControllerEmu::ControlGroup* Classic::GetGroup(ClassicGroup group)
     return nullptr;
   }
 }
-}
+}  // namespace WiimoteEmu

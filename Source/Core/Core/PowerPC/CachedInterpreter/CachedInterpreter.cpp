@@ -11,7 +11,7 @@
 #include "Core/HLE/HLE.h"
 #include "Core/HW/CPU.h"
 #include "Core/PowerPC/Gekko.h"
-#include "Core/PowerPC/Jit64Common/Jit64Base.h"
+#include "Core/PowerPC/Jit64Common/Jit64Constants.h"
 #include "Core/PowerPC/PPCAnalyst.h"
 #include "Core/PowerPC/PowerPC.h"
 
@@ -71,9 +71,9 @@ void CachedInterpreter::Shutdown()
   m_block_cache.Shutdown();
 }
 
-const u8* CachedInterpreter::GetCodePtr() const
+u8* CachedInterpreter::GetCodePtr()
 {
-  return reinterpret_cast<const u8*>(m_code.data() + m_code.size());
+  return reinterpret_cast<u8*>(m_code.data() + m_code.size());
 }
 
 void CachedInterpreter::ExecuteOneBlock()

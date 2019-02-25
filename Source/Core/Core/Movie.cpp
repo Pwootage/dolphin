@@ -851,6 +851,7 @@ void ReadHeader()
   {
     s_bSaveConfig = true;
     Config::AddLayer(ConfigLoaders::GenerateMovieConfigLoader(&tmpHeader));
+    SConfig::GetInstance().bJITFollowBranch = tmpHeader.bFollowBranch;
     s_bClearSave = tmpHeader.bClearSave;
     s_memcards = tmpHeader.memcards;
     s_bongos = tmpHeader.bongos;
@@ -1175,29 +1176,13 @@ void PlayController(GCPadStatus* PadStatus, int controllerID)
     PadStatus->button |= PAD_TRIGGER_R;
   if (s_padState.disc)
   {
-    // This implementation assumes the disc change will only happen once. Trying
-    // to change more than that will cause it to load the last disc every time.
-    // As far as I know, there are no 3+ disc games, so this should be fine.
-    bool found = false;
-    std::string path;
-    for (const std::string& iso_folder : SConfig::GetInstance().m_ISOFolder)
-    {
-      path = iso_folder + '/' + s_discChange;
-      if (File::Exists(path))
+    Core::RunAsCPUThread([] {
+      if (!DVDInterface::AutoChangeDisc())
       {
-        found = true;
-        break;
+        CPU::Break();
+        PanicAlertT("Change the disc to %s", s_discChange.c_str());
       }
-    }
-    if (found)
-    {
-      Core::RunAsCPUThread([&path] { DVDInterface::ChangeDisc(path); });
-    }
-    else
-    {
-      CPU::Break();
-      PanicAlertT("Change the disc to %s", s_discChange.c_str());
-    }
+    });
   }
 
   if (s_padState.reset)
@@ -1307,6 +1292,7 @@ void SaveRecording(const std::string& filename)
   header.filetype[3] = 0x1A;
   strncpy(header.gameID.data(), SConfig::GetInstance().GetGameID().c_str(), 6);
   header.bWii = SConfig::GetInstance().bWii;
+  header.bFollowBranch = SConfig::GetInstance().bJITFollowBranch;
   header.controllers = s_controllers & (SConfig::GetInstance().bWii ? 0xFF : 0x0F);
 
   header.bFromSaveState = s_bRecordingFromSaveState;
@@ -1396,7 +1382,7 @@ void GetSettings()
   }
   else
   {
-    s_bClearSave = !File::Exists(SConfig::GetInstance().m_strMemoryCardA);
+    s_bClearSave = !File::Exists(Config::Get(Config::MAIN_MEMCARD_A_PATH));
   }
   s_memcards |=
       (SConfig::GetInstance().m_EXIDevice[0] == ExpansionInterface::EXIDEVICE_MEMORYCARD ||
@@ -1489,4 +1475,4 @@ void Shutdown()
   s_currentInputCount = s_totalInputCount = s_totalFrames = s_tickCountAtLastInput = 0;
   s_temp_input.clear();
 }
-};
+}  // namespace Movie

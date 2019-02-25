@@ -142,12 +142,12 @@ bool FramebufferManager::Initialize()
 
 bool FramebufferManager::CreateEFBRenderPasses()
 {
-  m_efb_load_render_pass =
-      g_object_cache->GetRenderPass(EFB_COLOR_TEXTURE_FORMAT, EFB_DEPTH_TEXTURE_FORMAT,
-                                    g_ActiveConfig.iMultisamples, VK_ATTACHMENT_LOAD_OP_LOAD);
-  m_efb_clear_render_pass =
-      g_object_cache->GetRenderPass(EFB_COLOR_TEXTURE_FORMAT, EFB_DEPTH_TEXTURE_FORMAT,
-                                    g_ActiveConfig.iMultisamples, VK_ATTACHMENT_LOAD_OP_CLEAR);
+  m_efb_load_render_pass = g_object_cache->GetRenderPass(
+      EFB_COLOR_TEXTURE_FORMAT, Util::GetVkFormatForHostTextureFormat(GetEFBDepthFormat()),
+      g_ActiveConfig.iMultisamples, VK_ATTACHMENT_LOAD_OP_LOAD);
+  m_efb_clear_render_pass = g_object_cache->GetRenderPass(
+      EFB_COLOR_TEXTURE_FORMAT, Util::GetVkFormatForHostTextureFormat(GetEFBDepthFormat()),
+      g_ActiveConfig.iMultisamples, VK_ATTACHMENT_LOAD_OP_CLEAR);
   m_depth_resolve_render_pass = g_object_cache->GetRenderPass(
       EFB_DEPTH_AS_COLOR_TEXTURE_FORMAT, VK_FORMAT_UNDEFINED, 1, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
   return m_efb_load_render_pass != VK_NULL_HANDLE && m_efb_clear_render_pass != VK_NULL_HANDLE &&
@@ -181,7 +181,8 @@ bool FramebufferManager::CreateEFBFramebuffer()
                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
   m_efb_depth_texture = Texture2D::Create(
-      efb_width, efb_height, 1, efb_layers, EFB_DEPTH_TEXTURE_FORMAT, efb_samples,
+      efb_width, efb_height, 1, efb_layers,
+      Util::GetVkFormatForHostTextureFormat(GetEFBDepthFormat()), efb_samples,
       VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_TILING_OPTIMAL,
       VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
@@ -610,7 +611,7 @@ bool FramebufferManager::PopulateColorReadbackTexture()
 {
   // Can't be in our normal render pass.
   StateTracker::GetInstance()->EndRenderPass();
-  StateTracker::GetInstance()->OnReadback();
+  StateTracker::GetInstance()->OnCPUEFBAccess();
 
   // Issue a copy from framebuffer -> copy texture if we have >1xIR or MSAA on.
   VkRect2D src_region = {{0, 0}, {GetEFBWidth(), GetEFBHeight()}};
@@ -683,7 +684,7 @@ bool FramebufferManager::PopulateDepthReadbackTexture()
 {
   // Can't be in our normal render pass.
   StateTracker::GetInstance()->EndRenderPass();
-  StateTracker::GetInstance()->OnReadback();
+  StateTracker::GetInstance()->OnCPUEFBAccess();
 
   // Issue a copy from framebuffer -> copy texture if we have >1xIR or MSAA on.
   VkRect2D src_region = {{0, 0}, {GetEFBWidth(), GetEFBHeight()}};

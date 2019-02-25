@@ -10,6 +10,7 @@
 #include "Common/BitUtils.h"
 #include "Common/CommonTypes.h"
 #include "Common/MathUtil.h"
+#include "Core/PowerPC/Interpreter/ExceptionUtils.h"
 #include "Core/PowerPC/Interpreter/Interpreter.h"
 #include "Core/PowerPC/Interpreter/Interpreter_FPUtils.h"
 #include "Core/PowerPC/MMU.h"
@@ -175,8 +176,8 @@ void Interpreter::Helper_Quantize(u32 addr, u32 instI, u32 instRS, u32 instW)
   const EQuantizeType stType = gqr.st_type;
   const unsigned int stScale = gqr.st_scale;
 
-  const double ps0 = rPS0(instRS);
-  const double ps1 = rPS1(instRS);
+  const double ps0 = rPS(instRS).PS0AsDouble();
+  const double ps1 = rPS(instRS).PS1AsDouble();
 
   switch (stType)
   {
@@ -300,18 +301,29 @@ void Interpreter::Helper_Dequantize(u32 addr, u32 instI, u32 instRD, u32 instW)
     return;
   }
 
-  rPS0(instRD) = ps0;
-  rPS1(instRD) = ps1;
+  rPS(instRD).SetBoth(ps0, ps1);
 }
 
 void Interpreter::psq_l(UGeckoInstruction inst)
 {
+  if (HID2.LSQE == 0)
+  {
+    GenerateProgramException();
+    return;
+  }
+
   const u32 EA = inst.RA ? (rGPR[inst.RA] + inst.SIMM_12) : (u32)inst.SIMM_12;
   Helper_Dequantize(EA, inst.I, inst.RD, inst.W);
 }
 
 void Interpreter::psq_lu(UGeckoInstruction inst)
 {
+  if (HID2.LSQE == 0)
+  {
+    GenerateProgramException();
+    return;
+  }
+
   const u32 EA = rGPR[inst.RA] + inst.SIMM_12;
   Helper_Dequantize(EA, inst.I, inst.RD, inst.W);
 
@@ -324,12 +336,24 @@ void Interpreter::psq_lu(UGeckoInstruction inst)
 
 void Interpreter::psq_st(UGeckoInstruction inst)
 {
+  if (HID2.LSQE == 0)
+  {
+    GenerateProgramException();
+    return;
+  }
+
   const u32 EA = inst.RA ? (rGPR[inst.RA] + inst.SIMM_12) : (u32)inst.SIMM_12;
   Helper_Quantize(EA, inst.I, inst.RS, inst.W);
 }
 
 void Interpreter::psq_stu(UGeckoInstruction inst)
 {
+  if (HID2.LSQE == 0)
+  {
+    GenerateProgramException();
+    return;
+  }
+
   const u32 EA = rGPR[inst.RA] + inst.SIMM_12;
   Helper_Quantize(EA, inst.I, inst.RS, inst.W);
 

@@ -83,8 +83,9 @@ Guitar::Guitar(ExtensionReg& reg) : Attachment(_trans("Guitar"), reg)
   m_buttons->controls.emplace_back(new ControllerEmu::Input(ControllerEmu::DoNotTranslate, "+"));
 
   // stick
-  groups.emplace_back(
-      m_stick = new ControllerEmu::AnalogStick(_trans("Stick"), DEFAULT_ATTACHMENT_STICK_RADIUS));
+  constexpr auto gate_radius = ControlState(STICK_GATE_RADIUS) / STICK_RADIUS;
+  groups.emplace_back(m_stick =
+                          new ControllerEmu::OctagonAnalogStick(_trans("Stick"), gate_radius));
 
   // whammy
   groups.emplace_back(m_whammy = new ControllerEmu::Triggers(_trans("Whammy")));
@@ -106,19 +107,18 @@ void Guitar::GetState(u8* const data)
 
   // stick
   {
-    ControlState x, y;
-    m_stick->GetState(&x, &y);
+    const ControllerEmu::AnalogStick::StateData stick_state = m_stick->GetState();
 
-    guitar_data.sx = static_cast<u8>((x * 0x1F) + 0x20);
-    guitar_data.sy = static_cast<u8>((y * 0x1F) + 0x20);
+    guitar_data.sx = static_cast<u8>((stick_state.x * STICK_RADIUS) + STICK_CENTER);
+    guitar_data.sy = static_cast<u8>((stick_state.y * STICK_RADIUS) + STICK_CENTER);
   }
 
   // slider bar
   if (m_slider_bar->controls[0]->control_ref->BoundCount())
   {
-    ControlState slider_bar;
-    m_slider_bar->GetState(&slider_bar);
-    guitar_data.sb = s_slider_bar_control_codes.lower_bound(slider_bar)->second;
+    const ControllerEmu::Slider::StateData slider_data = m_slider_bar->GetState();
+
+    guitar_data.sb = s_slider_bar_control_codes.lower_bound(slider_data.value)->second;
   }
   else
   {
@@ -127,14 +127,15 @@ void Guitar::GetState(u8* const data)
   }
 
   // whammy bar
-  ControlState whammy;
-  m_whammy->GetState(&whammy);
-  guitar_data.whammy = static_cast<u8>(whammy * 0x1F);
+  const ControllerEmu::Triggers::StateData whammy_state = m_whammy->GetState();
+  guitar_data.whammy = static_cast<u8>(whammy_state.data[0] * 0x1F);
 
   // buttons
   m_buttons->GetState(&guitar_data.bt, guitar_button_bitmasks.data());
+
   // frets
   m_frets->GetState(&guitar_data.bt, guitar_fret_bitmasks.data());
+
   // strum
   m_strum->GetState(&guitar_data.bt, guitar_strum_bitmasks.data());
 
@@ -174,4 +175,4 @@ ControllerEmu::ControlGroup* Guitar::GetGroup(GuitarGroup group)
     return nullptr;
   }
 }
-}
+}  // namespace WiimoteEmu

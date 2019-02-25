@@ -33,6 +33,7 @@
 
 #include "InputCommon/GCAdapter.h"
 
+#include "UICommon/DiscordPresence.h"
 #include "UICommon/UICommon.h"
 #include "UICommon/USBUtils.h"
 
@@ -75,6 +76,7 @@ void Init()
   Config::AddConfigChangedCallback(InitCustomPaths);
   Config::AddLayer(ConfigLoaders::GenerateBaseConfigLoader());
   SConfig::Init();
+  Discord::Init();
   LogManager::Init();
   VideoBackendBase::PopulateList();
   WiimoteReal::LoadSettings();
@@ -90,6 +92,7 @@ void Shutdown()
   WiimoteReal::Shutdown();
   VideoBackendBase::ClearList();
   LogManager::Shutdown();
+  Discord::Shutdown();
   SConfig::Shutdown();
   Config::Shutdown();
 }
@@ -153,8 +156,10 @@ void SetLocale(std::string locale_name)
 
 void CreateDirectories()
 {
+  File::CreateFullPath(File::GetUserPath(D_RESOURCEPACK_IDX));
   File::CreateFullPath(File::GetUserPath(D_USER_IDX));
   File::CreateFullPath(File::GetUserPath(D_CACHE_IDX));
+  File::CreateFullPath(File::GetUserPath(D_COVERCACHE_IDX));
   File::CreateFullPath(File::GetUserPath(D_CONFIG_IDX));
   File::CreateFullPath(File::GetUserPath(D_DUMPDSP_IDX));
   File::CreateFullPath(File::GetUserPath(D_DUMPSSL_IDX));
@@ -174,6 +179,9 @@ void CreateDirectories()
 #ifndef ANDROID
   File::CreateFullPath(File::GetUserPath(D_THEMES_IDX));
   File::CreateFullPath(File::GetUserPath(D_STYLES_IDX));
+#else
+  // Disable media scanning in directories with a .nomedia file
+  File::CreateEmptyFile(File::GetUserPath(D_COVERCACHE_IDX) + DIR_SEP NOMEDIA_FILE);
 #endif
 }
 

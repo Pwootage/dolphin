@@ -32,6 +32,9 @@
     <ClCompile Include="ControllerEmu\ControllerEmu.cpp">
       <Filter>ControllerEmu</Filter>
     </ClCompile>
+    <ClCompile Include="ControllerEmu\StickGate.cpp">
+      <Filter>ControllerEmu</Filter>
+    </ClCompile>
     <ClCompile Include="ControllerEmu\Control\Control.cpp">
       <Filter>ControllerEmu\Control</Filter>
     </ClCompile>
@@ -110,12 +113,16 @@
     <ClCompile Include="ControlReference\ControlReference.cpp">
       <Filter>ControllerInterface</Filter>
     </ClCompile>
+    <ClCompile Include="InputProfile.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GCAdapter.h" />
     <ClInclude Include="GCPadStatus.h" />
     <ClInclude Include="InputConfig.h" />
     <ClInclude Include="ControllerEmu\ControllerEmu.h">
+      <Filter>ControllerEmu</Filter>
+    </ClInclude>
+    <ClInclude Include="ControllerEmu\StickGate.h">
       <Filter>ControllerEmu</Filter>
     </ClInclude>
     <ClInclude Include="ControllerEmu\Control\Control.h">
@@ -202,6 +209,7 @@
     <ClInclude Include="ControlReference\ControlReference.h">
       <Filter>ControllerInterface</Filter>
     </ClInclude>
+    <ClInclude Include="InputProfile.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />

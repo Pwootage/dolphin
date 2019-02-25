@@ -9,6 +9,8 @@
 
 #include "Common/Config/Config.h"
 #include "Core/Config/GraphicsSettings.h"
+#include "Core/Config/MainSettings.h"
+#include "Core/Config/UISettings.h"
 
 namespace ConfigLoaders
 {
@@ -24,6 +26,13 @@ bool IsSettingSaveable(const Config::ConfigLocation& config_location)
     return true;
 
   const static std::vector<Config::ConfigLocation> s_setting_saveable{
+      // Main.Core
+
+      Config::MAIN_DEFAULT_ISO.location,
+      Config::MAIN_MEMCARD_A_PATH.location,
+      Config::MAIN_MEMCARD_B_PATH.location,
+      Config::MAIN_AUTO_DISC_CHANGE.location,
+
       // Graphics.Hardware
 
       Config::GFX_VSYNC.location,
@@ -89,6 +98,7 @@ bool IsSettingSaveable(const Config::ConfigLocation& config_location)
       Config::GFX_ENHANCE_POST_SHADER.location,
       Config::GFX_ENHANCE_FORCE_TRUE_COLOR.location,
       Config::GFX_ENHANCE_DISABLE_COPY_FILTER.location,
+      Config::GFX_ENHANCE_ARBITRARY_MIPMAP_DETECTION.location,
 
       // Graphics.Stereoscopy
 
@@ -109,6 +119,7 @@ bool IsSettingSaveable(const Config::ConfigLocation& config_location)
       Config::GFX_HACK_SKIP_EFB_COPY_TO_RAM.location,
       Config::GFX_HACK_SKIP_XFB_COPY_TO_RAM.location,
       Config::GFX_HACK_DISABLE_COPY_TO_VRAM.location,
+      Config::GFX_HACK_DEFER_EFB_COPIES.location,
       Config::GFX_HACK_IMMEDIATE_XFB.location,
       Config::GFX_HACK_COPY_EFB_SCALED.location,
       Config::GFX_HACK_EFB_EMULATE_FORMAT_CHANGES.location,
@@ -118,9 +129,13 @@ bool IsSettingSaveable(const Config::ConfigLocation& config_location)
 
       Config::GFX_PERF_QUERIES_ENABLE.location,
 
+      // UI.General
+
+      Config::MAIN_USE_DISCORD_PRESENCE.location,
+
   };
 
   return std::find(s_setting_saveable.begin(), s_setting_saveable.end(), config_location) !=
          s_setting_saveable.end();
 }
-}  // namespace ConfigLoader
+}  // namespace ConfigLoaders
