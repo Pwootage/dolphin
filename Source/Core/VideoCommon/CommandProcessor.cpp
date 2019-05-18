@@ -276,6 +276,16 @@ void RegisterMMIO(MMIO::Mapping* mmio, u32 base)
                  MMIO::ComplexWrite<u16>([WMASK_HI_RESTRICT](u32, u16 val) {
                    WriteHigh(fifo.CPReadWriteDistance, val & WMASK_HI_RESTRICT);
                    Fifo::SyncGPU(Fifo::SyncGPUReason::Other);
+                   // TODO: this is a hack in the prime version specifically. Undo this later!
+                   if (fifo.CPReadWriteDistance == 0)
+                   {
+                     GPFifo::ResetGatherPipe();
+                     Fifo::ResetVideoBuffer();
+                   }
+                   else
+                   {
+                     Fifo::ResetVideoBuffer();
+                   }
                    Fifo::RunGpu();
                  }));
   mmio->Register(
