@@ -57,6 +57,7 @@ enum LOG_TYPE
   VIDEOINTERFACE,
   WII_IPC,
   WIIMOTE,
+  PRIME,
 
   NUMBER_OF_LOGS  // Must be last
 };

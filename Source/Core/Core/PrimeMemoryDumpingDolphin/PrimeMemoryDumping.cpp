@@ -9,6 +9,7 @@
 #include <mutex>
 #include <deque>
 #include <sstream>
+#include <unordered_map>
 #include <Common/Assert.h>
 #include <Common/Timer.h>
 #include <VideoCommon/OnScreenDisplay.h>
@@ -32,6 +33,15 @@ using namespace nlohmann;
 
 
 namespace PrimeMemoryDumping {
+  struct DolphinCAreaTracking {
+    u32 mrea = -1;
+    EChain chain = EChain::Deallocated;
+    int loadStart = 0;
+    int loadEnd = 0;
+    EPhase phase = EPhase::LoadHeader;
+    EOcclusionState occlusionState = EOcclusionState::Occluded;
+  };
+
   static bool initalized = false;
 
   int timeToFrames(double time) {
@@ -52,6 +62,32 @@ namespace PrimeMemoryDumping {
   static double lastRoomTime = 0;
   static double speed[3];
   static double rotationalSpeed[3];
+  static unordered_map<u32, DolphinCAreaTracking> areas;
+
+  void handleWorldLoads();
+  void CalcMessages();
+  void ShowMessages();
+
+  void DumpMemoryForFrame() {
+    if (!initalized) {
+      initalized = true;
+    }
+
+    u32 gameID = PowerPC::HostRead_U32(0x80000000);
+    u16 makerID = PowerPC::HostRead_U16(0x80000004);
+
+    json json_message;
+    //Prime 1
+    if (gameID == 0x474D3845 && makerID == 0x3031) {
+      CalcMessages();
+      ShowMessages();
+      handleWorldLoads();
+    }
+  }
+
+  void LogRead(u64 offset, u64 len) {
+
+  }
 
   void ShowMessages() {
     stringstream msg;
@@ -76,7 +112,8 @@ namespace PrimeMemoryDumping {
         << setw(7) << rotationalSpeed[1] << "y "
         << setw(7) << rotationalSpeed[2] << "z "
         << setw(7) << veclen(rotationalSpeed) << " total" << endl;
-    OSD::AddMessage(msg.str(), 1, 0xFF33FFFF);
+//    OSD::AddMessage(msg.str(), 1000, 0xFF33FFFF);
+//    WARN_LOG(PRIME, "%s", msg.str().c_str());
   }
 
   void CalcMessages() {
@@ -93,6 +130,7 @@ namespace PrimeMemoryDumping {
       currentRoom = room;
       lastRoomTime = currentTime - currentRoomStart;
       currentRoomStart = currentTime;
+      WARN_LOG(PRIME, "Room time: %f/%d frames", lastRoomTime, timeToFrames(lastRoomTime));
     }
 
     speed[0] = player.velocity.x.read();
@@ -104,40 +142,115 @@ namespace PrimeMemoryDumping {
     rotationalSpeed[2] = player.angularVelocity.z.read();
   }
 
-  void DumpMemoryForFrame() {
-    if (!initalized) {
-      initalized = true;
+  string phaseName(EPhase phase) {
+    switch (phase) {
+      case EPhase::LoadHeader:
+        return "Load header";
+      case EPhase::LoadSecSizes:
+        return "Load section sizes";
+      case EPhase::ReserveSections:
+        return "Reserve Sections";
+      case EPhase::LoadDataSections:
+        return "Load data sections";
+      case EPhase::WaitForFinish:
+        return "Wait for finish";
     }
-
-    CalcMessages();
-    ShowMessages();
-
-    u32 gameID = PowerPC::HostRead_U32(0x80000000);
-    u16 makerID = PowerPC::HostRead_U16(0x80000004);
-
-    json json_message;
-    //Prime 1
-    if (gameID == 0x474D3845 && makerID == 0x3031) {
-////        json_message["heap"] = Prime1JsonDumper::parseHeap();
-//        json_message["camera"] = Prime1JsonDumper::parseCamera();
-////        json_message["player"] = Prime1JsonDumper::parsePlayer();
-//        json_message["player_raw"] = Prime1JsonDumper::parsePlayerRaw();
-//        json_message["world"] = Prime1JsonDumper::parseWorld();
-//        json_message["pool_summary"] = Prime1JsonDumper::parsePoolSummary();
-//        json_message["heap_stats"] = Prime1JsonDumper::parseHeapStats();
-    }
+    return "Unknown";
   }
 
-  void LogRead(u64 offset, u64 len) {
-//      sf::Packet packet;
-//      packet << PACKET_TYPE_RAW_DISC_READ;
-//      packet << static_cast<u32>((offset >> 32) & 0xFFFFFFFF);
-//      packet << static_cast<u32>(offset & 0xFFFFFFFF);
-//      packet << static_cast<u32>((len >> 32) & 0xFFFFFFFF);
-//      packet << static_cast<u32>(len & 0xFFFFFFFF);
+  string chainName(EChain chain) {
+    switch (chain) {
+      case EChain::Invalid:
+        return "Invalid";
+      case EChain::ToDeallocate:
+        return "ToDeallocate";
+      case EChain::Deallocated:
+        return "Deallocated";
+      case EChain::Loading:
+        return "Loading";
+      case EChain::Alive:
+        return "Alive";
+      case EChain::AliveJudgement:
+        return "Alive Judgement";
+    }
+    return "Unknown";
+  }
 
-//      if (socket.send(packet, target, port) != sf::Socket::Done) {
-//        PanicAlertT("Failed to dump data to socket!");
-//      }
+  string occlusionName(EOcclusionState state) {
+    switch (state) {
+      case EOcclusionState::Occluded:
+        return "Occluded";
+      case EOcclusionState::Visible:
+        return "Visible";
+    }
+    return "Unknown";
+  }
+
+  void handleWorldLoads() {
+    CGameGlobalObjects global(CGameGlobalObjects::LOCATION);
+    CStateManager manager(CStateManager::LOCATION);
+    CGameState gameState = global.gameState.deref();
+    double time = gameState.playTime.read();
+    int frame = timeToFrames(time);
+
+    CWorld world = manager.world.deref();
+    int areaCount = world.areas.size.read();
+    for (int i = 0; i < areaCount; i++) {
+      auto autoPtr = world.areas[i];
+//    cout << hex << " autoptr offset: " << autoPtr.ptr();
+//    cout << hex << " autoptr second value: " << autoPtr.dataPtr.read();
+//    cout << endl;
+      CGameArea area = autoPtr.dataPtr.deref();
+      u32 mrea = area.mrea.read();
+
+      DolphinCAreaTracking &areaTracking = areas[mrea];
+
+      EChain newChain = area.curChain.read();
+      if (newChain != areaTracking.chain) {
+        INFO_LOG(PRIME, "%d: Area %x chain %s -> %s",
+                 frame,
+                 mrea,
+                 chainName(areaTracking.chain).c_str(),
+                 chainName(newChain).c_str());
+        areaTracking.chain = newChain;
+        if (newChain == EChain::Loading) {
+          areaTracking.loadStart = frame;
+        }
+        if (newChain == EChain::Alive) {
+          areaTracking.loadEnd = frame;
+          int loadFrames = areaTracking.loadEnd - areaTracking.loadStart;
+          WARN_LOG(PRIME, "%d: Area %x loaded in %d frames",
+            frame,
+            mrea,
+            loadFrames
+            );
+        }
+      }
+
+      EPhase newPhase = area.phase.read();
+      if (newPhase != areaTracking.phase) {
+        INFO_LOG(PRIME, "%d: Area %x phase %s -> %s",
+                 frame,
+                 mrea,
+                 phaseName(areaTracking.phase).c_str(),
+                 phaseName(newPhase).c_str());
+        areaTracking.phase = newPhase;
+      }
+
+      EOcclusionState newOcclusion = EOcclusionState::Occluded;
+      if (area.postConstructed.read() != 0) {
+        CPostConstructed pc = area.postConstructed.read();
+        newOcclusion = pc.occlusionState.read();
+      }
+
+      if (newOcclusion != areaTracking.occlusionState) {
+        INFO_LOG(PRIME, "%d: Area %x occlusion %s -> %s",
+                 frame,
+                 mrea,
+                 occlusionName(areaTracking.occlusionState).c_str(),
+                 occlusionName(newOcclusion).c_str());
+        areaTracking.occlusionState = newOcclusion;
+      }
+    }
   }
 }
