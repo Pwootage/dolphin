@@ -75,7 +75,7 @@ void MemArena::GrabSHMSegment(size_t size)
     ERROR_LOG(MEMMAP, "shm_open failed: %s", strerror(errno));
     return;
   }
-  shm_unlink(file_name.c_str());
+//  shm_unlink(file_name.c_str());
   if (ftruncate(fd, size) < 0)
     ERROR_LOG(MEMMAP, "Failed to allocate low memory space");
 #endif
@@ -87,6 +87,8 @@ void MemArena::ReleaseSHMSegment()
   CloseHandle(hMemoryMapping);
   hMemoryMapping = 0;
 #else
+  const std::string file_name = "/dolphin-emu." + std::to_string(getpid());
+  shm_unlink(file_name.c_str());
   close(fd);
 #endif
 }

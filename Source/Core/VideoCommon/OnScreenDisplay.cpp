@@ -94,7 +94,7 @@ void AddMessage(const std::string& message, u32 ms, u32 rgba)
 
 void DrawMessages()
 {
-  DoCallbacks(CallbackType::DrawMessages);
+//  DoCallbacks(CallbackType::DrawMessages);
 
   if (!SConfig::GetInstance().bOnScreenDisplayMessages)
     return;
