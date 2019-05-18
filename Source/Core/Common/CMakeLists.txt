@@ -11,6 +11,7 @@ add_library(common
   Crypto/ec.cpp
   Debug/MemoryPatches.cpp
   Debug/Watches.cpp
+  DynamicLibrary.cpp
   ENetUtil.cpp
   File.cpp
   FileSearch.cpp
@@ -24,6 +25,7 @@ add_library(common
   JitRegister.cpp
   Logging/LogManager.cpp
   MathUtil.cpp
+  Matrix.cpp
   MD5.cpp
   MemArena.cpp
   MemoryUtil.cpp
@@ -67,6 +69,14 @@ if (APPLE)
     ${COREFOUNDATION_LIBRARY}
     ${IOK_LIBRARY}
   )
+elseif(WIN32)
+  target_link_libraries(common
+  PRIVATE
+    kernel32.lib
+    shlwapi.lib
+    opengl32.lib
+    winmm.lib
+  )
 endif()
 
 if(ANDROID)
@@ -76,6 +86,7 @@ if(ANDROID)
   )
 elseif(WIN32)
   target_sources(common PRIVATE
+    LdrWatcher.cpp
     Logging/ConsoleListenerWin.cpp
   )
 else()

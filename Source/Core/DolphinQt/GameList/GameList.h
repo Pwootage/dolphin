@@ -52,10 +52,12 @@ signals:
   void OpenGeneralSettings();
 
 private:
+  void ShowHeaderContextMenu(const QPoint& pos);
   void ShowContextMenu(const QPoint&);
   void OpenContainingFolder();
   void OpenProperties();
-  void OpenSaveFolder();
+  void OpenWiiSaveFolder();
+  void OpenGCSaveFolder();
   void OpenWiki();
   void SetDefaultISO();
   void DeleteFile();

@@ -15,7 +15,6 @@
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
 #include "Common/File.h"
-#include "Common/MathUtil.h"
 #include "Common/MsgHandler.h"
 #include "Common/StringUtil.h"
 #include "Common/Swap.h"
@@ -609,8 +608,8 @@ u16 BlockAlloc::NextFreeBlock(u16 MaxBlock, u16 StartingBlock) const
 {
   if (m_free_blocks > 0)
   {
-    StartingBlock = MathUtil::Clamp<u16>(StartingBlock, MC_FST_BLOCKS, BAT_SIZE + MC_FST_BLOCKS);
-    MaxBlock = MathUtil::Clamp<u16>(MaxBlock, MC_FST_BLOCKS, BAT_SIZE + MC_FST_BLOCKS);
+    StartingBlock = std::clamp<u16>(StartingBlock, MC_FST_BLOCKS, BAT_SIZE + MC_FST_BLOCKS);
+    MaxBlock = std::clamp<u16>(MaxBlock, MC_FST_BLOCKS, BAT_SIZE + MC_FST_BLOCKS);
     for (u16 i = StartingBlock; i < MaxBlock; ++i)
       if (m_map[i - MC_FST_BLOCKS] == 0)
         return i;
@@ -1277,10 +1276,13 @@ s32 GCMemcard::FZEROGX_MakeSaveGameValid(const Header& cardheader, const DEntry&
   u32 i, j;
   u32 serial1, serial2;
   u16 chksum = 0xFFFF;
-  int block = 0;
 
   // check for F-Zero GX system file
   if (strcmp(reinterpret_cast<const char*>(direntry.m_filename.data()), "f_zero.dat") != 0)
+    return 0;
+
+  // also make sure that the filesize is correct
+  if (FileBuffer.size() != 4)
     return 0;
 
   // get encrypted destination memory card serial numbers
@@ -1295,7 +1297,9 @@ s32 GCMemcard::FZEROGX_MakeSaveGameValid(const Header& cardheader, const DEntry&
   // calc 16-bit checksum
   for (i = 0x02; i < 0x8000; i++)
   {
-    chksum ^= (FileBuffer[block].m_block[i - (block * 0x2000)] & 0xFF);
+    const int block = i / 0x2000;
+    const int offset = i % 0x2000;
+    chksum ^= (FileBuffer[block].m_block[offset] & 0xFF);
     for (j = 8; j > 0; j--)
     {
       if (chksum & 1)
@@ -1303,8 +1307,6 @@ s32 GCMemcard::FZEROGX_MakeSaveGameValid(const Header& cardheader, const DEntry&
       else
         chksum >>= 1;
     }
-    if (!(i % 0x2000))
-      block++;
   }
 
   // set new checksum

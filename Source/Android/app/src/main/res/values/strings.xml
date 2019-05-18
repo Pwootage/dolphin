@@ -199,6 +199,8 @@
     <string name="stereoscopy_convergence_description">Control the distance of the convergence plane, this is the distance at which objects will appear to be in front of the screen.\nA higher value creates stronger out-of-screen effects while a lower value is more comfortable.</string>
     <string name="stereoscopy_swap_eyes">Swap Eyes</string>
     <string name="stereoscopy_swap_eyes_description">Swap the left and right eye, mostly useful if you want to view side-by-side cross-eyed.</string>
+    <string name="backend_multithreading">Backend Multithreading</string> <!--Backend Multithreading is only disabled by default on Android  -->
+    <string name="backend_multithreading_description">Enables graphics backend multithreading (Vulkan only). May affect performance. If unsure, leave unchecked.</string>
 
     <string name="hacks_submenu">Hacks</string>
     <string name="embedded_frame_buffer">Embedded Frame Buffer</string>
@@ -249,6 +251,7 @@
     <string name="yes">Yes</string>
     <string name="no">No</string>
     <string name="ok">OK</string>
+    <string name="off">Off</string>
     <string name="cancel">Cancel</string>
     <string name="clear">Clear</string>
     <string name="disabled">Disabled</string>
@@ -295,9 +298,11 @@
     <string name="emulation_control_joystick_rel_center">Relative Stick Center</string>
     <string name="emulation_control_rumble">Rumble</string>
     <string name="emulation_choose_controller">Choose Controller</string>
-    <string name="emulation_controller_changed">You may have to reload the game after changing extensions.</string>
     <string name="emulation_touch_button_help">Swipe down from the top of the screen to access the menu.</string>
     <string name="emulation_touch_overlay_reset">Reset Overlay</string>
+    <string name="emulation_ir_group">Touch IR Pointer</string>
+    <string name="emulation_ir_sensitivity">IR Sensitivity</string>
+    <string name="emulation_choose_doubletap">Double tap button</string>
 
     <!-- GC Adapter Menu-->
     <string name="gc_adapter_rumble">Enable Vibration</string>
@@ -322,4 +327,10 @@
     <string name="homescreen_favorites">Favorites</string>
 
     <string name="select_dir">Select This Directory</string>
+
+    <!-- Misc -->
+    <string name="pitch">Total Pitch</string>
+    <string name="yaw">Total Yaw</string>
+    <string name="vertical_offset">Vertical Offset</string>
+
 </resources>

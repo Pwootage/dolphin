@@ -123,7 +123,10 @@ QVariant GameListModel::data(const QModelIndex& index, int role) const
     break;
   case COL_DESCRIPTION:
     if (role == Qt::DisplayRole || role == Qt::InitialSortOrderRole)
-      return QString::fromStdString(game.GetDescription());
+    {
+      return QString::fromStdString(game.GetDescription())
+          .replace(QLatin1Char('\n'), QLatin1Char(' '));
+    }
     break;
   case COL_MAKER:
     if (role == Qt::DisplayRole || role == Qt::InitialSortOrderRole)
@@ -135,7 +138,15 @@ QVariant GameListModel::data(const QModelIndex& index, int role) const
     break;
   case COL_SIZE:
     if (role == Qt::DisplayRole)
-      return QString::fromStdString(UICommon::FormatSize(game.GetFileSize()));
+    {
+      std::string str = UICommon::FormatSize(game.GetFileSize());
+
+      // Add asterisk to size of compressed files.
+      if (game.GetFileSize() != game.GetVolumeSize())
+        str += '*';
+
+      return QString::fromStdString(str);
+    }
     if (role == Qt::InitialSortOrderRole)
       return static_cast<quint64>(game.GetFileSize());
     break;

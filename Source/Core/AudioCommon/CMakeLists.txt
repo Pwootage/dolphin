@@ -3,8 +3,8 @@ add_library(audiocommon
   AudioStretcher.cpp
   CubebStream.cpp
   CubebUtils.cpp
-  DPL2Decoder.cpp
   Mixer.cpp
+  SurroundDecoder.cpp
   NullSoundStream.cpp
   WaveFile.cpp
 )
@@ -57,16 +57,8 @@ if(WIN32)
   )
   target_link_libraries(audiocommon PRIVATE audiocommon_xaudio27)
 
-  set(ENV{OPENALDIR} ${PROJECT_SOURCE_DIR}/Externals/OpenAL)
   # Dolphin loads openal32.dll at runtime
-  find_package(OpenAL)
-  if(OPENAL_FOUND)
-    message(STATUS "OpenAL found, enabling OpenAL sound backend")
-    target_sources(audiocommon PRIVATE OpenALStream.cpp)
-    target_link_libraries(audiocommon PRIVATE OpenAL::OpenAL)
-  else()
-    message(STATUS "OpenAL NOT found in Externals")
-  endif()
+  target_sources(audiocommon PRIVATE OpenALStream.cpp)
 endif()
 
-target_link_libraries(audiocommon PRIVATE cubeb SoundTouch)
+target_link_libraries(audiocommon PRIVATE cubeb SoundTouch FreeSurround)

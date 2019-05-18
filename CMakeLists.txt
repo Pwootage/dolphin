@@ -1,13 +1,11 @@
 ########################################
 # General setup
 #
-cmake_minimum_required(VERSION 3.5.0)
+cmake_minimum_required(VERSION 3.10)
 set(CMAKE_OSX_ARCHITECTURES "x86_64")
 # Minimum OS X version.
 # This is inserted into the Info.plist as well.
-# Note that the SDK determines the maximum version of which optional
-# features can be used, not the minimum required version to run.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.10.0" CACHE STRING "")
 
 project(dolphin-emu)
 
@@ -25,6 +23,7 @@ endif()
 
 option(USE_SHARED_ENET "Use shared libenet if found rather than Dolphin's soon-to-compatibly-diverge version" OFF)
 option(USE_UPNP "Enables UPnP port mapping support" ON)
+option(ENABLE_NOGUI "Enable NoGUI frontend" ON)
 option(ENABLE_QT "Enable Qt (Default)" ON)
 option(ENABLE_LTO "Enables Link Time Optimization" OFF)
 option(ENABLE_GENERIC "Enables generic build that should run on any little-endian host" OFF)
@@ -107,6 +106,14 @@ endif()
 # here.  You must run "make install" to install these to the proper location
 # as defined above.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/Binaries)
+
+if (WIN32)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/Binary)
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+endif()
 
 # setup CCache
 include(CCache)
@@ -204,8 +211,8 @@ endif()
 
 
 # Enforce minimum GCC version
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 6.0)
-  message(FATAL_ERROR "Dolphin requires at least GCC 6.0 (found ${CMAKE_CXX_COMPILER_VERSION})")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 7.0)
+  message(FATAL_ERROR "Dolphin requires at least GCC 7.0 (found ${CMAKE_CXX_COMPILER_VERSION})")
 endif()
 
 if(CMAKE_GENERATOR MATCHES "Ninja")
@@ -362,10 +369,19 @@ if(ENABLE_VTUNE)
   )
 endif()
 
+if(WIN32)
+  message(STATUS "Building for Windows, disabling NoGUI frontend.")
+  set(ENABLE_NOGUI OFF)
+endif()
+
 if(ANDROID)
   message(STATUS "Building for Android")
   if(NOT ENABLE_HEADLESS)
     add_definitions(-DANDROID)
+    if(ENABLE_NOGUI)
+      message(STATUS "Building Android app, disabling NoGUI frontend.")
+      set(ENABLE_NOGUI 0)
+    endif()
   else()
     # Lie to cmake a bit. We are cross compiling to Android
     # but not as a shared library. We want an executable.
@@ -386,7 +402,6 @@ if(ENABLE_HEADLESS)
   message(STATUS "Enabling Headless! Disabling GUI.")
   set(ENABLE_QT 0)
   set(USE_DISCORD_PRESENCE 0)
-  add_definitions(-DUSE_HEADLESS)
 endif()
 
 # Set file offset size to 64 bits.
@@ -587,6 +602,16 @@ else()
   message(STATUS "Using static libpng from Externals")
   add_subdirectory(Externals/libpng)
   set(PNG png)
+endif()
+
+# Using static FreeSurround from Externals
+# There is no system FreeSurround library.
+message(STATUS "Using static FreeSurround from Externals")
+add_subdirectory(Externals/FreeSurround)
+
+if (APPLE OR WIN32)
+  message(STATUS "Using ed25519 from Externals")
+  add_subdirectory(Externals/ed25519)
 endif()
 
 # Using static soundtouch from Externals
