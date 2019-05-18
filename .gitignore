@@ -37,3 +37,4 @@ CMakeLists.txt.user
 # Ignore Visual Studio Code's working dir
 /.vscode/
 /cmake-build-*/
+/user
